@@ -63,20 +63,7 @@
 
 
 -- ============================================================
--- STEP 1 — DROP EXISTING SCHEMAS IF REBUILDING
--- WARNING: This permanently deletes all data.
--- Only run when rebuilding from scratch.
--- ============================================================
-
-DROP SCHEMA IF EXISTS metadata     CASCADE;
-DROP SCHEMA IF EXISTS raw          CASCADE;
-DROP SCHEMA IF EXISTS standardized CASCADE;
-DROP SCHEMA IF EXISTS curated      CASCADE;
-DROP SCHEMA IF EXISTS ops          CASCADE;
-
-
--- ============================================================
--- STEP 2 — CREATE THE FIVE SCHEMAS
+-- STEP 1 — CREATE THE FIVE SCHEMAS
 -- ============================================================
 
 CREATE SCHEMA metadata;
@@ -87,7 +74,7 @@ CREATE SCHEMA ops;
 
 
 -- ============================================================
--- STEP 3 — METADATA SCHEMA
+-- STEP 2 — METADATA SCHEMA
 --
 -- The dictionary of the entire system.
 -- Defines what every code, identifier, and metric means.
@@ -341,7 +328,7 @@ CREATE TABLE metadata.metric_codes (
 
 
 -- ============================================================
--- STEP 4 — OPS SCHEMA
+-- STEP 3 — OPS SCHEMA
 --
 -- Operational monitoring tables.
 -- Tracks ingestion runs, researcher queries, and
@@ -524,7 +511,7 @@ CREATE TABLE ops.partition_registry (
 
 
 -- ============================================================
--- STEP 5 — STANDARDIZED SCHEMA
+-- STEP 4 — STANDARDIZED SCHEMA
 --
 -- The heart of the system. One unified table containing
 -- every observation from every source, cleaned and reduced
@@ -645,7 +632,7 @@ CREATE TABLE standardized.observations (
 
 
 -- ============================================================
--- STEP 6 — YEAR PARTITIONS
+-- STEP 5 — YEAR PARTITIONS
 --
 -- Partition strategy:
 --   1950–2009 → 6 decade partitions (old data, cold migration
@@ -729,7 +716,7 @@ CREATE TABLE standardized.y_2030 PARTITION OF standardized.observations FOR VALU
 
 
 -- ============================================================
--- STEP 7 — INDEXES ON STANDARDIZED.OBSERVATIONS
+-- STEP 6 — INDEXES ON STANDARDIZED.OBSERVATIONS
 --
 -- Defined on parent table, automatically propagated to all
 -- partitions including new ones created in the future.
@@ -781,7 +768,7 @@ CREATE INDEX idx_period
 
 
 -- ============================================================
--- STEP 8 — OBSERVATION REVISIONS TABLE
+-- STEP 7 — OBSERVATION REVISIONS TABLE
 --
 -- Tracks when source data changes between annual ingestion runs.
 -- Sources like World Bank silently revise historical data.
@@ -852,7 +839,7 @@ CREATE TABLE standardized.observation_revisions (
 
 
 -- ============================================================
--- STEP 9 — CURATED SCHEMA
+-- STEP 8 — CURATED SCHEMA
 --
 -- Empty at launch. Three types of objects added over time:
 --
@@ -894,7 +881,7 @@ CREATE TABLE standardized.observation_revisions (
 
 
 -- ============================================================
--- STEP 10 — DATABASE ROLES
+-- STEP 9 — DATABASE ROLES
 --
 -- Two roles implementing the principle of least privilege.
 -- Each role gets exactly the permissions it needs, no more.
