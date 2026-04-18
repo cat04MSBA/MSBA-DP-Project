@@ -468,7 +468,7 @@ def seed_oecd_msti_metrics(conn):
             description = (
                 'Business enterprise expenditure on research and experimental '
                 'development (BERD) as a percentage of gross domestic product. '
-                'OECD variable code: B_XGDP. '
+                'OECD variable code: B. '
                 'Coverage: 38 OECD members + selected non-members. '
                 'Source: OECD Main Science and Technology Indicators (MSTI)'
             )
@@ -482,7 +482,7 @@ def seed_oecd_msti_metrics(conn):
             description = (
                 'Government intramural expenditure on research and experimental '
                 'development (GOVERD) as a percentage of gross domestic product. '
-                'OECD variable code: GOV_XGDP. '
+                'OECD variable code: GV. '
                 'Coverage: 38 OECD members + selected non-members. '
                 'Source: OECD Main Science and Technology Indicators (MSTI)'
             )
@@ -496,7 +496,7 @@ def seed_oecd_msti_metrics(conn):
             description = (
                 'Total researchers (full-time equivalent) per thousand '
                 'total employment. '
-                'OECD variable code: TP_RSXLF. '
+                'OECD variable code: T_RS. '
                 'Researchers are professionals engaged in the conception or '
                 'creation of new knowledge. '
                 'Coverage: 38 OECD members + selected non-members. '
