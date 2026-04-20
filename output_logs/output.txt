@@ -1,0 +1,240 @@
+Seeding metadata.sources...
+✓ Upserted 7 sources into metadata.sources
+
+Current metadata.sources:
+ source_id                                     full_name       access_method
+       imf              International Monetary Fund Data            REST API
+ oecd_msti   OECD Main Science and Technology Indicators            REST API
+  openalex              OpenAlex AI Publications Dataset            REST API
+    oxford Oxford Insights Government AI Readiness Index       XLSX download
+       pwt                             Penn World Tables Stata file download
+   wipo_ip   WIPO IP Statistics — AI Patent Applications       bulk download
+world_bank       World Bank World Development Indicators            REST API
+Fetching countries from World Bank API...
+  Raw columns from wbgapi: ['id', 'name', 'aggregate', 'longitude', 'latitude', 'region', 'adminregion', 'lendingType', 'incomeLevel', 'capitalCity']
+  Column mapping: {'id': 'iso3', 'name': 'country_name', 'region': 'region', 'incomeLevel': 'income_group'}
+  Found 217 countries after excluding aggregates
+  Edge cases with notes: 4 (expected 5 or fewer)
+Upserting into metadata.countries...
+✓ Upserted 217 countries into metadata.countries
+
+Summary:
+ total_countries  regions  income_groups  countries_with_notes
+             217        7              5                     4
+
+Countries with notes (4):
+iso3         country_name                                                                                   notes
+ HKG Hong Kong SAR, China                           Hong Kong SAR, China — listed separately from mainland China.
+ MAC     Macao SAR, China                               Macao SAR, China — listed separately from mainland China.
+ PSE   West Bank and Gaza                                 Palestine — listed as West Bank and Gaza by World Bank.
+ XKX               Kosovo Kosovo — informal ISO code XKX used by World Bank. Not officially assigned by ISO 3166.
+Seeding metadata.metrics...
+==================================================
+
+── World Bank ──
+  Fetching: Economy & Growth (ID: 1)...
+    ✓ Economy & Growth: 49 indicators
+  Fetching: Financial Sector (ID: 2)...
+    ✓ Financial Sector: 77 indicators
+  Fetching: Education (ID: 4)...
+    ✓ Education: 41 indicators
+  Fetching: Energy & Mining (ID: 5)...
+    ✓ Energy & Mining: 53 indicators
+  Fetching: Infrastructure (ID: 9)...
+    ✓ Infrastructure: 78 indicators
+  Fetching: Science & Technology (ID: 14)...
+    ✓ Science & Technology: 13 indicators
+  Fetching: Trade (ID: 21)...
+    ✓ Trade: 155 indicators
+  ✓ Upserted 466 World Bank metrics
+
+── IMF ──
+  ✓ Upserted 132 IMF metrics
+
+── Penn World Tables ──
+  ✓ Upserted 47 PWT metrics
+
+── Oxford Insights ──
+  ✓ Upserted 1 Oxford metric: oxford.ai_readiness
+
+── OpenAlex ──
+  ✓ Upserted 1 OpenAlex metric: openalex.ai_publication_count
+
+── WIPO IP ──
+  ✓ Upserted 1 WIPO IP metric: wipo.ai_patent_count
+
+── OECD MSTI ──
+  ✓ Upserted 3 OECD MSTI metrics
+
+==================================================
+
+Metrics per source:
+ source_id  metric_count
+       imf           132
+ oecd_msti             3
+  openalex             1
+    oxford             1
+       pwt            47
+   wipo_ip             1
+world_bank           439
+
+Total metrics: 624
+Seeding metadata.country_codes...
+==================================================
+Loaded 217 countries from metadata.countries
+
+── World Bank country codes ──
+  ✓ Processed 217 World Bank country codes
+
+── IMF country codes ──
+  ⚠ Skipping code mapping change for XKX (imf): stored='KOS', incoming='UVK'. Use drift detection to review this change.
+  ✓ Processed 217 IMF country codes
+  ⚠ 22 IMF codes could not be matched:
+    - AIA: Anguilla
+    - COK: Cook Islands
+    - ESH: Western Sahara
+    - FLK: Falkland Islands
+    - GLP: Guadeloupe
+    ... and 17 more
+
+── PWT country codes ──
+  ✓ Processed 182 PWT country codes
+  ⚠ 3 PWT countries not in our table:
+    - AIA: Anguilla
+    - MSR: Montserrat
+    - TWN: Taiwan
+
+── Oxford country codes ──
+  ⚠ Medium confidence match: 'Antigua & Barbuda' → ATG. Please verify.
+  ⚠ Medium confidence match: 'Bahamas' → BHS. Please verify.
+  ⚠ Medium confidence match: 'Bosnia & Herzegovina' → BIH. Please verify.
+  ⚠ Medium confidence match: 'Congo' → COG. Please verify.
+  ⚠ Medium confidence match: 'Democratic Republic of the Congo' → COD. Please verify.
+  ⚠ Medium confidence match: 'Egypt' → EGY. Please verify.
+  ⚠ Medium confidence match: 'Gambia' → GMB. Please verify.
+  ⚠ Medium confidence match: 'Ivory Coast' → CIV. Please verify.
+  ⚠ Medium confidence match: 'Kyrgyzstan' → KGZ. Please verify.
+  ⚠ Medium confidence match: 'Niger' → NGA. Please verify.
+  ⚠ Skipping code mapping change for NGA (oxford): stored='Niger', incoming='Nigeria'. Use drift detection to review this change.
+  ⚠ Skipping code mapping change for PRK (oxford): stored='North Korea', incoming='Republic of Korea'. Use drift detection to review this change.
+  ⚠ Medium confidence match: 'Republic of Korea' → PRK. Please verify.
+  ⚠ Skipping code mapping change for COG (oxford): stored='Congo', incoming='Republic of the Congo'. Use drift detection to review this change.
+  ⚠ Medium confidence match: 'Saint Kitts & Nevis' → KNA. Please verify.
+  ⚠ Medium confidence match: 'Saint Lucia' → LCA. Please verify.
+  ⚠ Medium confidence match: 'Saint Vincent and the Grenadines' → VCT. Please verify.
+  ⚠ Medium confidence match: 'São Tomé & Príncipe' → STP. Please verify.
+  ⚠ Medium confidence match: 'Slovakia' → SVK. Please verify.
+  ⚠ Medium confidence match: 'Somalia' → SOM. Please verify.
+  ⚠ Medium confidence match: 'Trinidad & Tobago' → TTO. Please verify.
+  ⚠ Medium confidence match: 'Yemen' → YEM. Please verify.
+  ✓ Processed 190 Oxford country codes (171 high confidence, 19 medium confidence)
+  ✗ 2 Oxford names could not be matched:
+    - Taiwan
+    - Turkey
+    Add these to OXFORD_MANUAL_OVERRIDES dict and re-run this seed script.
+
+── OpenAlex country codes ──
+  ✓ Processed 215 OpenAlex country codes
+  ⚠ 2 countries have no ISO2 mapping via pycountry
+
+── WIPO IP country codes ── (uses ISO2)
+  ✓ Processed 215 WIPO IP country codes (ISO2)
+  ⚠ 2 countries have no ISO2 mapping via pycountry
+
+── OECD MSTI country codes ──
+  ✓ Processed 217 OECD MSTI country codes
+
+==================================================
+
+Country codes per source:
+ source_id  country_code_count
+       imf                 216
+ oecd_msti                 217
+  openalex                 215
+    oxford                 187
+       pwt                 182
+   wipo_ip                 215
+world_bank                 217
+
+Total country codes: 1449
+Seeding metadata.metric_codes...
+==================================================
+
+── World Bank metric codes ──
+    ✓ topic 1: 49 codes
+    ✓ topic 2: 77 codes
+    ✓ topic 4: 41 codes
+    ✓ topic 5: 53 codes
+    ✓ topic 9: 78 codes
+    ✓ topic 14: 13 codes
+    ✓ topic 21: 155 codes
+  ✓ Processed 466 World Bank metric codes
+
+── IMF metric codes ──
+  ✓ Processed 132 IMF metric codes
+
+── PWT metric codes ──
+  ✓ Processed 47 PWT metric codes
+
+── Oxford metric codes ──
+  ✓ Processed 1 Oxford metric code
+
+── OpenAlex metric codes ──
+  ✓ Processed 1 OpenAlex metric code
+
+── WIPO IP metric codes ──
+  ✓ Processed 1 WIPO IP metric code
+
+── OECD MSTI metric codes ──
+  ✓ Processed 3 OECD MSTI metric codes
+
+==================================================
+
+Metric codes per source:
+ source_id  metric_code_count
+       imf                132
+ oecd_msti                  3
+  openalex                  1
+    oxford                  1
+       pwt                 47
+   wipo_ip                  1
+world_bank                439
+
+Total metric codes: 624
+============================================================
+RUNNING ALL SEED SCRIPTS
+============================================================
+
+[1/5] Populating metadata.sources (8 sources)
+------------------------------------------------------------
+
+✓ seed_sources.py completed in 9.1s
+
+[2/5] Populating metadata.countries (~266 countries)
+------------------------------------------------------------
+
+✓ seed_countries.py completed in 57.9s
+
+[3/5] Populating metadata.metrics (all sources)
+------------------------------------------------------------
+
+✓ seed_metrics.py completed in 154.0s
+
+[4/5] Populating metadata.country_codes (crosswalk)
+------------------------------------------------------------
+
+✓ seed_country_codes.py completed in 626.8s
+
+[5/5] Populating metadata.metric_codes (crosswalk)
+------------------------------------------------------------
+
+✓ seed_metric_codes.py completed in 269.9s
+
+============================================================
+ALL SEED SCRIPTS COMPLETED in 1117.6s
+============================================================
+
+Next steps:
+  1. Run ingestion scripts to pull actual data
+  2. After ingestion, run calculate_coverage.py to
+     populate available_from and available_to in metadata.metrics

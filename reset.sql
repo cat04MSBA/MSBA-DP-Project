@@ -56,6 +56,7 @@ BEGIN
     EXECUTE 'REVOKE ALL PRIVILEGES ON metadata.countries      FROM pipeline_writer';
     EXECUTE 'REVOKE ALL PRIVILEGES ON metadata.country_codes  FROM pipeline_writer';
     EXECUTE 'REVOKE ALL PRIVILEGES ON metadata.metric_codes   FROM pipeline_writer';
+    EXECUTE 'REVOKE ALL PRIVILEGES ON ops.metadata_changes    FROM pipeline_writer';
 
     -- Ops tables (existing)
     EXECUTE 'REVOKE ALL PRIVILEGES ON ops.pipeline_runs       FROM pipeline_writer';
@@ -102,6 +103,7 @@ BEGIN
 
     -- Ops tables (new — added in V3 schema)
     EXECUTE 'REVOKE ALL PRIVILEGES ON ops.quality_runs  FROM app_reader';
+    EXECUTE 'REVOKE ALL PRIVILEGES ON ops.metadata_changes FROM app_reader';
 
     -- Sequences
     EXECUTE 'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA ops           FROM app_reader';

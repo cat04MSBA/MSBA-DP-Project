@@ -6,33 +6,54 @@ Populates metadata.metrics — one row per metric.
 THIRD seed script to run.
 metadata.metric_codes depends on this existing first.
 
-Safe to re-run — uses upsert logic throughout.
+Safe to re-run — uses drift-aware upsert logic throughout.
 
 Schema: metric_id, metric_name, source_id, category,
         unit, description, frequency, available_from, available_to
 
-No subcategory column — removed from schema.
 available_from and available_to are set to NULL here.
-They are auto-calculated after ingestion by a separate script:
+They are auto-calculated after ingestion by calculate_coverage.py:
     SELECT MIN(year), MAX(year) FROM standardized.observations
     WHERE metric_id = '...'
 
+DRIFT-AWARE UPSERT DESIGN:
+    The upsert_metric() function uses a selective ON CONFLICT
+    DO UPDATE that excludes unit and frequency from the update
+    set if they already have non-null values in the database.
+
+    WHY unit AND frequency ARE EXCLUDED FROM AUTO-UPDATE:
+        A unit change (e.g. 'current USD' → 'constant USD') makes
+        every historical observation in the silver layer potentially
+        uninterpretable — researchers cannot know whether a value
+        was recorded under the old or new unit without knowing the
+        exact date of the change.
+
+        A frequency change affects how researchers aggregate data.
+        Annual data aggregated as quarterly produces nonsense results.
+
+        Both changes must go through drift detection on the next
+        ingestion run, where they are logged to ops.metadata_changes
+        and emailed to the team for human review. The seed script
+        must not bypass this process by silently overwriting.
+
+        metric_name and description ARE included in the update
+        because they are editorial changes that do not affect
+        value interpretability.
+
+    This protection only matters on re-runs after initial seeding.
+    On the very first run, all fields are NULL and the INSERT
+    populates everything normally. On subsequent re-runs, only
+    safe fields (name, description) are updated; critical fields
+    (unit, frequency) are preserved as-is.
+
 METADATA SOURCES:
     world_bank  → fully automated from REST API
-                  name, unit, description, category all from API
     imf         → fully automated from DataMapper API
-                  name, description from API
-    pwt         → fully automated from Stata file embedded labels
-                  variable name = code, label = name + description
+    pwt         → hardcoded from Stata file embedded labels
     oxford      → 1 metric hardcoded
-                  description from oxfordinsights.com
     openalex    → 1 metric hardcoded
-                  name and description confirmed from API response
     wipo_ip     → 1 metric hardcoded
-                  description from WIPO IP Statistics documentation
     oecd_msti   → 3 metrics hardcoded
-                  variable codes confirmed from OECD MSTI documentation
-                  NOTE: API URL to be added once confirmed by team
 """
 
 import requests
@@ -44,14 +65,36 @@ engine = get_engine()
 
 
 # ═══════════════════════════════════════════════════════════════
-# HELPER: UPSERT ONE METRIC
+# HELPER: DRIFT-AWARE UPSERT ONE METRIC
 # ═══════════════════════════════════════════════════════════════
 def upsert_metric(conn, metric: dict):
     """
-    Insert or update one row in metadata.metrics.
-    available_from and available_to are intentionally excluded
-    from the UPDATE — they are owned by the post-ingestion
-    calculation script, not seed scripts.
+    Insert or drift-aware-update one row in metadata.metrics.
+
+    On INSERT (new metric): all fields populated normally.
+    On CONFLICT (existing metric):
+        - metric_name, source_id, category, description:
+          updated unconditionally (editorial, safe to overwrite)
+        - unit, frequency: only updated if currently NULL.
+          If already non-null, preserved as-is to prevent
+          the seed script from bypassing drift detection.
+        - available_from, available_to: never updated here.
+          Owned by calculate_coverage.py which runs after
+          ingestion and computes these from actual data.
+
+    WHY available_from AND available_to ARE EXCLUDED:
+        These are computed from standardized.observations after
+        ingestion. The seed script sets them to NULL on first
+        insert. If the seed script were to update them on re-runs,
+        it would overwrite the computed values with NULL,
+        destroying the coverage information that calculate_coverage.py
+        worked to produce.
+
+    Args:
+        conn:   Open SQLAlchemy connection.
+        metric: Dict with keys: metric_id, metric_name, source_id,
+                category, unit, description, frequency,
+                available_from, available_to.
     """
     conn.execute(text("""
         INSERT INTO metadata.metrics (
@@ -68,11 +111,25 @@ def upsert_metric(conn, metric: dict):
             metric_name  = EXCLUDED.metric_name,
             source_id    = EXCLUDED.source_id,
             category     = EXCLUDED.category,
-            unit         = EXCLUDED.unit,
             description  = EXCLUDED.description,
-            frequency    = EXCLUDED.frequency
-            -- available_from and available_to intentionally excluded:
-            -- owned by post-ingestion calculation script
+            -- unit and frequency intentionally excluded from
+            -- update if already non-null. These are critical
+            -- fields — changes must go through drift detection
+            -- on the next ingestion run, not be silently
+            -- overwritten by a seed script re-run.
+            -- COALESCE preserves the stored value if non-null,
+            -- applying the incoming value only if stored is NULL.
+            unit      = COALESCE(
+                            NULLIF(metadata.metrics.unit, ''),
+                            EXCLUDED.unit
+                        ),
+            frequency = COALESCE(
+                            NULLIF(metadata.metrics.frequency, ''),
+                            EXCLUDED.frequency
+                        )
+            -- available_from and available_to intentionally
+            -- excluded: owned by calculate_coverage.py, not
+            -- seed scripts.
     """), metric)
 
 
@@ -94,17 +151,7 @@ def make_metric(metric_id, metric_name, source_id, category,
 
 # ═══════════════════════════════════════════════════════════════
 # 1. WORLD BANK METRICS
-# Fully automated from REST API.
-# name, unit, description, category all come from API response.
-# Nothing invented.
-#
-# Topic IDs confirmed from:
-#   https://api.worldbank.org/v2/topics?format=json
 # ═══════════════════════════════════════════════════════════════
-# Education indicator allowlist — exactly the 41 featured indicators
-# from the World Bank Education topic page (worldbank.org/en/topic/education).
-# Topic 4 returns thousands of indicators across all WB databases;
-# this allowlist restricts to the curated featured set only.
 EDUCATION_ALLOWLIST = {
     'SE.PRM.UNER.FE', 'SE.PRM.UNER.MA',
     'SE.XPD.TOTL.GD.ZS', 'SE.XPD.TOTL.GB.ZS',
@@ -130,7 +177,7 @@ EDUCATION_ALLOWLIST = {
 
 
 def fetch_wb_topic(topic_id):
-    """Fetch all indicators for a WB topic using path-based URL with pagination."""
+    """Fetch all indicators for a WB topic with pagination."""
     page = 1
     all_indicators = []
     while True:
@@ -162,7 +209,6 @@ def fetch_wb_topic(topic_id):
 def seed_world_bank_metrics(conn):
     print("\n── World Bank ──")
 
-    # Topic IDs for our 7 agreed categories
     topic_ids = {
         1:  'Economy & Growth',
         2:  'Financial Sector',
@@ -183,9 +229,11 @@ def seed_world_bank_metrics(conn):
             print(f"  ⚠ No indicators returned for topic {topic_id}")
             continue
 
-        # Education: apply allowlist to restrict to featured indicators only
         if topic_id == 4:
-            all_indicators = [i for i in all_indicators if i.get('id') in EDUCATION_ALLOWLIST]
+            all_indicators = [
+                i for i in all_indicators
+                if i.get('id') in EDUCATION_ALLOWLIST
+            ]
 
         for ind in all_indicators:
             if not ind.get('id') or not ind.get('name'):
@@ -216,12 +264,6 @@ def seed_world_bank_metrics(conn):
 
 # ═══════════════════════════════════════════════════════════════
 # 2. IMF METRICS
-# Fully automated from DataMapper API.
-# name and description come directly from API.
-# Nothing invented.
-#
-# Endpoint confirmed from:
-#   https://www.imf.org/external/datamapper/api/help
 # ═══════════════════════════════════════════════════════════════
 def seed_imf_metrics(conn):
     print("\n── IMF ──")
@@ -242,8 +284,6 @@ def seed_imf_metrics(conn):
         if not code or not info.get('label'):
             continue
 
-        # metric_id convention: imf.original_code_lowercase
-        # e.g. NGDP_RPCH → imf.ngdp_rpch
         metric_id = f"imf.{code.lower()}"
 
         unit = info.get('unit') or None
@@ -252,11 +292,11 @@ def seed_imf_metrics(conn):
 
         upsert_metric(conn, make_metric(
             metric_id   = metric_id,
-            metric_name = info.get('label'),            # from API
+            metric_name = info.get('label'),
             source_id   = 'imf',
-            category    = None,                         # IMF API has no topics
-            unit        = unit,                         # from API if present
-            description = info.get('description') or None,  # from API
+            category    = None,
+            unit        = unit,
+            description = info.get('description') or None,
             frequency   = 'annual'
         ))
         count += 1
@@ -266,22 +306,13 @@ def seed_imf_metrics(conn):
 
 # ═══════════════════════════════════════════════════════════════
 # 3. PWT METRICS
-# Fully automated from Stata file embedded labels.
-# Variable labels are embedded in .dta format and extracted
-# via pandas StataReader — nothing invented.
-#
-# URL confirmed from:
-#   https://www.rug.nl/ggdc/productivity/pwt/
 # ═══════════════════════════════════════════════════════════════
-# PWT 11.0 variable labels — extracted from pwt110.dta
-# Hardcoded to avoid dependency on file download at seeding time.
-# Source: Penn World Tables 11.0, doi:10.34894/FABVLR
 PWT_VARIABLE_LABELS = {
     'rgdpe':    'Expenditure-side real GDP at chained PPPs (in mil. 2021US$)',
     'rgdpo':    'Output-side real GDP at chained PPPs (in mil. 2021US$)',
     'pop':      'Population (in millions)',
     'emp':      'Number of persons engaged (in millions)',
-    'avh':      'Average annual hours worked by persons engaged (source: The Conference Board)',
+    'avh':      'Average annual hours worked by persons engaged',
     'hc':       'Human capital index, see note hc',
     'ccon':     'Real consumption of households and government, at current PPPs (in mil. 2021US$)',
     'cda':      'Real domestic absorption, see note cda',
@@ -330,10 +361,9 @@ PWT_VARIABLE_LABELS = {
 def seed_pwt_metrics(conn):
     print("\n── Penn World Tables ──")
 
-    # Skip identifier columns — not metrics
     skip_columns = {'countrycode', 'country', 'currency_unit', 'year'}
-
     count = 0
+
     for var_name, label in PWT_VARIABLE_LABELS.items():
         if var_name in skip_columns:
             continue
@@ -345,8 +375,8 @@ def seed_pwt_metrics(conn):
             metric_name = label,
             source_id   = 'pwt',
             category    = 'Productivity',
-            unit        = None,         # units embedded in label text
-            description = label,        # label IS the description in PWT
+            unit        = None,
+            description = label,
             frequency   = 'annual'
         ))
         count += 1
@@ -355,11 +385,7 @@ def seed_pwt_metrics(conn):
 
 
 # ═══════════════════════════════════════════════════════════════
-# 4. OXFORD METRIC — 1 metric hardcoded
-# Overall AI Readiness Index score only.
-# No pillars, no sub-indicators.
-# Description taken from Oxford Insights website:
-#   https://oxfordinsights.com/ai-readiness/ai-readiness-index/
+# 4. OXFORD METRIC
 # ═══════════════════════════════════════════════════════════════
 def seed_oxford_metrics(conn):
     print("\n── Oxford Insights ──")
@@ -382,13 +408,8 @@ def seed_oxford_metrics(conn):
     print("  ✓ Upserted 1 Oxford metric: oxford.ai_readiness")
 
 
-
 # ═══════════════════════════════════════════════════════════════
-# 5. OPENALEX METRIC — 1 metric hardcoded
-# AI publication count per country per year.
-# Concept ID C154945302 confirmed from OpenAlex API:
-#   https://api.openalex.org/concepts/C154945302
-# Name and description taken directly from that API response.
+# 5. OPENALEX METRIC
 # ═══════════════════════════════════════════════════════════════
 def seed_openalex_metrics(conn):
     print("\n── OpenAlex ──")
@@ -402,12 +423,8 @@ def seed_openalex_metrics(conn):
         description = (
             'Number of AI-related academic publications per country per year. '
             'Counted by filtering OpenAlex works on concept C154945302 '
-            '(Artificial Intelligence: field of computer science and '
-            'engineering practices for intelligence demonstrated by machines '
-            'and intelligent agents) and grouping by the country of the '
+            '(Artificial Intelligence) and grouping by the country of the '
             "authors' affiliated institutions. "
-            'A paper with authors from multiple countries is counted '
-            'once per country. '
             'Source: api.openalex.org, concept ID C154945302'
         )
     ))
@@ -416,11 +433,7 @@ def seed_openalex_metrics(conn):
 
 
 # ═══════════════════════════════════════════════════════════════
-# 6. WIPO IP METRIC — 1 metric hardcoded
-# AI patent applications per country per year.
-# IPC class G06N confirmed from WIPO documentation as the
-# classification for Computer Science / AI patents.
-# Description from WIPO IP Statistics documentation.
+# 6. WIPO IP METRIC
 # ═══════════════════════════════════════════════════════════════
 def seed_wipo_metrics(conn):
     print("\n── WIPO IP ──")
@@ -433,11 +446,8 @@ def seed_wipo_metrics(conn):
         unit        = 'count',
         description = (
             'Number of patent applications classified under IPC class G06N '
-            '(Computing; Calculating; Counting — Artificial Intelligence) '
-            'by country of origin per year. '
+            '(Computing — Artificial Intelligence) by country of origin per year. '
             'Sourced from WIPO IP Statistics complete patent dataset. '
-            'Country of origin refers to the country of the first-named '
-            'applicant. '
             'Source: wipo.int/en/web/ip-statistics'
         )
     ))
@@ -446,14 +456,7 @@ def seed_wipo_metrics(conn):
 
 
 # ═══════════════════════════════════════════════════════════════
-# 7. OECD MSTI METRICS — 3 metrics hardcoded
-# Variable codes confirmed from OECD MSTI documentation.
-# Names and descriptions from OECD Frascati Manual and MSTI docs.
-#
-# NOTE: OECD MSTI covers 38 OECD members + selected non-members.
-# Not global coverage. Documented in notes and description.
-#
-# TODO: Add exact SDMX API URL once confirmed from OECD Data Explorer.
+# 7. OECD MSTI METRICS
 # ═══════════════════════════════════════════════════════════════
 def seed_oecd_msti_metrics(conn):
     print("\n── OECD MSTI ──")
@@ -466,10 +469,8 @@ def seed_oecd_msti_metrics(conn):
             category    = 'Research & Development',
             unit        = '% of GDP',
             description = (
-                'Business enterprise expenditure on research and experimental '
-                'development (BERD) as a percentage of gross domestic product. '
-                'OECD variable code: B. '
-                'Coverage: 38 OECD members + selected non-members. '
+                'Business enterprise expenditure on R&D (BERD) as a '
+                'percentage of GDP. OECD variable code: B. '
                 'Source: OECD Main Science and Technology Indicators (MSTI)'
             )
         ),
@@ -480,10 +481,8 @@ def seed_oecd_msti_metrics(conn):
             category    = 'Research & Development',
             unit        = '% of GDP',
             description = (
-                'Government intramural expenditure on research and experimental '
-                'development (GOVERD) as a percentage of gross domestic product. '
-                'OECD variable code: GV. '
-                'Coverage: 38 OECD members + selected non-members. '
+                'Government intramural expenditure on R&D (GOVERD) as a '
+                'percentage of GDP. OECD variable code: GV. '
                 'Source: OECD Main Science and Technology Indicators (MSTI)'
             )
         ),
@@ -495,13 +494,10 @@ def seed_oecd_msti_metrics(conn):
             unit        = 'per thousand employed',
             description = (
                 'Total researchers (full-time equivalent) per thousand '
-                'total employment. '
-                'OECD variable code: T_RS. '
-                'Researchers are professionals engaged in the conception or '
-                'creation of new knowledge. '
-                'Coverage: 38 OECD members + selected non-members. '
+                'total employment. OECD variable code: T_RS. '
                 'Source: OECD Main Science and Technology Indicators (MSTI)'
-            )
+            ),
+            frequency   = 'biannual'
         )
     ]
 
@@ -512,7 +508,7 @@ def seed_oecd_msti_metrics(conn):
 
 
 # ═══════════════════════════════════════════════════════════════
-# MAIN — RUN ALL IN ORDER
+# MAIN
 # ═══════════════════════════════════════════════════════════════
 print("Seeding metadata.metrics...")
 print("=" * 50)
@@ -529,9 +525,6 @@ with engine.connect() as conn:
 
 print("\n" + "=" * 50)
 
-# ─────────────────────────────────────────────────────────────
-# VERIFY
-# ─────────────────────────────────────────────────────────────
 result = pd.read_sql("""
     SELECT source_id, COUNT(*) AS metric_count
     FROM metadata.metrics

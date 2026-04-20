@@ -569,7 +569,9 @@ CREATE TABLE ops.partition_registry (
 --    WIPO        → per full file ('full_file')
 --    PWT         → per full file ('full_file')
 --
--- RETENTION: 3 months, then archived to B2 by retire_ops.py.
+-- RETENTION: 10 days in Supabase, then migrated to B2 by retire_ops.py.
+--    10 days covers any realistic restart window. After 10 days
+--    a full re-run is performed rather than restarting from checkpoint.
 -- ------------------------------------------------------------
 CREATE TABLE ops.checkpoints (
   checkpoint_id   SERIAL     PRIMARY KEY,
@@ -799,7 +801,12 @@ CREATE TABLE ops.rejection_summary (
       'year_out_of_range',
       'duplicate_pk',
       'empty_string',
-      'unparseable_value'
+      'unparseable_value',
+      'metadata_drift_pending_review'
+      -- metadata_drift_pending_review → rows parked because their
+      -- metric's unit or frequency drifted from stored metadata.
+      -- Rows are held until a human approves or rejects the drift
+      -- via ops.metadata_changes. Added with drift detection system.
     )),
   -- Why these rows were rejected.
   -- Each unique reason gets its own row in this table.
@@ -817,7 +824,103 @@ CREATE TABLE ops.rejection_summary (
 
 
 -- ============================================================
--- STEP 5 — STANDARDIZED SCHEMA
+-- STEP 4b — ops.metadata_changes (ADDED WITH DRIFT DETECTION)
+--
+-- Records every detected change in source metadata between runs.
+-- One row per field change per entity per run.
+--
+-- WHY THIS TABLE EXISTS:
+--    The seed scripts originally used ON CONFLICT DO UPDATE which
+--    silently overwrote metadata (metric units, country codes) when
+--    a source changed its reporting conventions. This is dangerous:
+--    - A unit change makes historical observations uninterpretable.
+--    - A code mapping change could silently remap historical rows
+--      to the wrong country.
+--    This table intercepts those changes and routes them to a
+--    controlled human review process instead of silent overwriting.
+--
+-- TWO CATEGORIES OF CHANGE (action_taken values):
+--    auto_applied     → safe editorial changes (name, description).
+--                       Applied immediately, logged here for audit.
+--    pending_review   → critical semantic changes (unit, frequency,
+--                       any code mapping). NOT applied to metadata.
+--                       Human must approve or reject via add_metric.py.
+--
+-- RELATIONSHIP TO OTHER OPS TABLES:
+--    Every drift event also writes to ops.quality_runs with
+--    severity='INFORMATIONAL' (auto_applied) or 'CRITICAL'
+--    (pending_review). This table stores the before/after values;
+--    ops.quality_runs stores the pass/fail outcome. Both are needed
+--    for a complete audit trail:
+--    - ops.quality_runs answers "did this check pass?"
+--    - ops.metadata_changes answers "what exactly changed?"
+--
+-- RETENTION: 2 years in Supabase, then migrated to B2.
+--    Same retention as ops.quality_runs — metadata governance
+--    events have the same analytical value over time.
+-- ============================================================
+CREATE TABLE ops.metadata_changes (
+  change_id     SERIAL     PRIMARY KEY,
+
+  run_id        INTEGER    NOT NULL
+                REFERENCES ops.pipeline_runs(run_id),
+  -- Which pipeline run detected this drift.
+
+  source_id     TEXT       NOT NULL,
+  -- Which source's metadata drifted.
+  -- Stored directly for simpler query joins.
+
+  entity_type   TEXT       NOT NULL
+    CHECK (entity_type IN (
+      'metric',
+      'country_code',
+      'metric_code',
+      'source'
+    )),
+  -- What kind of metadata entity drifted.
+  -- 'metric'       → a field in metadata.metrics changed
+  -- 'country_code' → a code in metadata.country_codes changed
+  -- 'metric_code'  → a code in metadata.metric_codes changed
+  -- 'source'       → a field in metadata.sources changed
+
+  entity_id     TEXT       NOT NULL,
+  -- The specific entity that drifted.
+  -- For metrics:       the metric_id (e.g. 'wb.ny_gdp_pcap_cd')
+  -- For country_codes: the iso3 (e.g. 'LBN')
+  -- For metric_codes:  the metric_id
+  -- For sources:       the source_id
+
+  field_changed TEXT       NOT NULL,
+  -- Which specific field changed.
+  -- Examples: 'unit', 'frequency', 'metric_name', 'code'
+
+  old_value     TEXT,
+  -- The value currently stored in metadata before this change.
+  -- NULL if the field had no previous value.
+
+  new_value     TEXT,
+  -- The value the source now reports.
+  -- What metadata would be updated to if approved.
+
+  detected_at   TIMESTAMP  NOT NULL  DEFAULT NOW(),
+  -- When drift was detected. Used by retire_ops.py for archival.
+
+  action_taken  TEXT       NOT NULL
+    CHECK (action_taken IN (
+      'auto_applied',
+      'pending_review',
+      'rejected',
+      'approved'
+    ))
+  -- What happened with this drift:
+  -- 'auto_applied'   → safe change applied immediately (name/description)
+  -- 'pending_review' → critical change parked for human review
+  -- 'approved'       → human approved the change via add_metric.py
+  -- 'rejected'       → human rejected the change via add_metric.py
+);
+
+
+
 --
 -- The heart of the system. One unified table containing every
 -- observation from every source, reduced to one canonical shape:
@@ -1147,6 +1250,13 @@ GRANT SELECT, INSERT
   ON ops.rejection_summary
   TO pipeline_writer;
 
+-- Metadata changes: write drift detections, update action_taken
+-- when human approves or rejects via add_metric.py.
+-- SELECT needed to read pending_review rows for email formatting.
+GRANT SELECT, INSERT, UPDATE
+  ON ops.metadata_changes
+  TO pipeline_writer;
+
 -- Query log and partition registry: pipeline_writer can update
 -- partition sizes and read query log for curated view planning.
 GRANT INSERT, SELECT, UPDATE
@@ -1211,6 +1321,14 @@ GRANT INSERT
 -- provenance panel shown to researchers.
 GRANT SELECT
   ON ops.quality_runs
+  TO app_reader;
+
+-- Metadata changes: read-only.
+-- App reads drift detection history to show researchers when
+-- source metadata changed and what was done about it.
+-- This supports the data provenance panel in Streamlit.
+GRANT SELECT
+  ON ops.metadata_changes
   TO app_reader;
 
 -- No access to: ops.checkpoints (internal restart recovery),

@@ -7,20 +7,31 @@ every source's original indicator code and our metric_id.
 FIFTH and final seed script to run.
 Requires metadata.sources and metadata.metrics to exist first.
 
-Safe to re-run — uses upsert logic throughout.
+Safe to re-run — uses drift-aware upsert logic throughout.
+
+DRIFT-AWARE UPSERT DESIGN:
+    The upsert_metric_code() function checks if the incoming code
+    differs from the stored code before updating. If it differs,
+    it does NOT apply the update — it prints a warning and skips.
+
+    WHY METRIC CODE CHANGES ARE BLOCKED IN SEED SCRIPTS:
+        A metric code change means the source changed its indicator
+        identifier (e.g. World Bank renamed 'NY.GDP.PCAP.CD' to
+        something else). Every historical row in the silver layer
+        was inserted using the old code mapping. A silent update
+        to the crosswalk would break the ability to trace those
+        rows back to the source. The change must go through drift
+        detection on the next ingestion run where it is logged to
+        ops.metadata_changes and emailed to the team for review.
 
 HOW EACH SOURCE IS HANDLED:
     world_bank  Original codes from API (e.g. NY.GDP.PCAP.CD)
-                metric_id = 'wb.' + code.lower().replace('.','_')
     imf         Original codes from DataMapper API (e.g. NGDP_RPCH)
-                metric_id = 'imf.' + code.lower()
     pwt         Original codes = Stata variable names (e.g. rtfpna)
-                metric_id = 'pwt.' + var_name.lower()
-    oxford      Single metric, code = 'Score' (XLSX column header)
-    openalex    Single metric, code = 'ai_publication_count'
-    wipo_ip     Single metric, code = '4c' (WIPO AI patent indicator code)
-    oecd_msti   3 metrics, codes = MSTI variable codes:
-                B, GV, T_RS
+    oxford      Single metric, code = 'Score'
+    openalex    Single metric, code = 'C154945302'
+    wipo_ip     Single metric, code = '4c'
+    oecd_msti   3 metrics, codes = B, GV, T_RS
 """
 
 import requests
@@ -32,23 +43,57 @@ engine = get_engine()
 
 
 # ═══════════════════════════════════════════════════════════════
-# HELPER: UPSERT ONE METRIC CODE
+# HELPER: DRIFT-AWARE UPSERT ONE METRIC CODE
 # ═══════════════════════════════════════════════════════════════
-def upsert_metric_code(conn, metric_id: str, source_id: str, code: str):
-    """Insert or update one row in metadata.metric_codes."""
-    conn.execute(text("""
-        INSERT INTO metadata.metric_codes (metric_id, source_id, code)
-        VALUES (:metric_id, :source_id, :code)
-        ON CONFLICT (metric_id, source_id) DO UPDATE SET
-            code = EXCLUDED.code
-    """), {'metric_id': metric_id, 'source_id': source_id, 'code': code})
+def upsert_metric_code(conn, metric_id: str,
+                       source_id: str, code: str):
+    """
+    Insert or drift-aware-update one row in metadata.metric_codes.
+
+    WHY DRIFT-AWARE (not unconditional ON CONFLICT DO UPDATE):
+        Metric code changes are CRITICAL — a code change means
+        the source changed its indicator identifier. All historical
+        rows in the silver layer were inserted using the old mapping.
+        A silent update bypasses drift detection and breaks
+        traceability. The seed script must not be used to
+        accidentally apply what should be a reviewed change.
+
+        - New mapping: INSERT normally.
+        - Same code: no-op (idempotent).
+        - Different code: skip and warn. Must go through drift
+          detection on next ingestion run.
+    """
+    existing = conn.execute(text("""
+        SELECT code FROM metadata.metric_codes
+        WHERE metric_id = :metric_id AND source_id = :source_id
+    """), {'metric_id': metric_id, 'source_id': source_id}).fetchone()
+
+    if existing is None:
+        # New mapping — insert normally.
+        conn.execute(text("""
+            INSERT INTO metadata.metric_codes (metric_id, source_id, code)
+            VALUES (:metric_id, :source_id, :code)
+        """), {'metric_id': metric_id, 'source_id': source_id, 'code': code})
+
+    elif existing[0] == code:
+        # Same code — no-op.
+        pass
+
+    else:
+        # Different code — skip and warn.
+        print(
+            f"  ⚠ Skipping metric code change for {metric_id} "
+            f"({source_id}): stored='{existing[0]}', "
+            f"incoming='{code}'. "
+            f"Use drift detection to review this change."
+        )
 
 
 # ═══════════════════════════════════════════════════════════════
 # HELPER: LOAD ALL METRIC IDS FROM DATABASE
-# Used to verify we only insert codes for metrics that exist.
 # ═══════════════════════════════════════════════════════════════
 def load_metrics(source_id: str = None):
+    """Load metric_ids from metadata.metrics, optionally filtered."""
     if source_id:
         return pd.read_sql("""
             SELECT metric_id FROM metadata.metrics
@@ -59,11 +104,7 @@ def load_metrics(source_id: str = None):
 
 # ═══════════════════════════════════════════════════════════════
 # 1. WORLD BANK METRIC CODES
-# Re-fetch from API to get exact original codes.
-# metric_id was derived from these at seeding time.
-# We re-derive the mapping rather than reversing it.
 # ═══════════════════════════════════════════════════════════════
-# Must match EDUCATION_ALLOWLIST in seed_metrics.py exactly
 EDUCATION_ALLOWLIST = {
     'SE.PRM.UNER.FE', 'SE.PRM.UNER.MA',
     'SE.XPD.TOTL.GD.ZS', 'SE.XPD.TOTL.GB.ZS',
@@ -89,7 +130,7 @@ EDUCATION_ALLOWLIST = {
 
 
 def fetch_wb_topic(topic_id):
-    """Fetch all indicators for a WB topic using path-based URL with pagination."""
+    """Fetch all indicators for a WB topic with pagination."""
     page = 1
     all_indicators = []
     while True:
@@ -127,9 +168,11 @@ def seed_wb_metric_codes(conn):
     for topic_id in topic_ids:
         all_indicators = fetch_wb_topic(topic_id)
 
-        # Education: apply allowlist — matches seed_metrics.py exactly
         if topic_id == 4:
-            all_indicators = [i for i in all_indicators if i.get('id') in EDUCATION_ALLOWLIST]
+            all_indicators = [
+                i for i in all_indicators
+                if i.get('id') in EDUCATION_ALLOWLIST
+            ]
 
         for ind in all_indicators:
             original_code = ind.get('id')
@@ -141,12 +184,11 @@ def seed_wb_metric_codes(conn):
 
         print(f"    ✓ topic {topic_id}: {len(all_indicators)} codes")
 
-    print(f"  ✓ Upserted {count} World Bank metric codes")
+    print(f"  ✓ Processed {count} World Bank metric codes")
 
 
 # ═══════════════════════════════════════════════════════════════
 # 2. IMF METRIC CODES
-# Original codes from DataMapper API.
 # ═══════════════════════════════════════════════════════════════
 def seed_imf_metric_codes(conn):
     print("\n── IMF metric codes ──")
@@ -170,15 +212,12 @@ def seed_imf_metric_codes(conn):
         upsert_metric_code(conn, metric_id, 'imf', code)
         count += 1
 
-    print(f"  ✓ Upserted {count} IMF metric codes")
+    print(f"  ✓ Processed {count} IMF metric codes")
 
 
 # ═══════════════════════════════════════════════════════════════
 # 3. PWT METRIC CODES
-# Original codes = Stata variable names from the .dta file.
 # ═══════════════════════════════════════════════════════════════
-# PWT_VARIABLE_LABELS reused from seed_metrics — same source, same fix.
-# Variable names are stable for PWT 11.0.
 PWT_VARIABLE_LABELS = {
     'rgdpe', 'rgdpo', 'pop', 'emp', 'avh', 'hc', 'ccon', 'cda',
     'cgdpe', 'cgdpo', 'cn', 'ck', 'ctfp', 'cwtfp', 'rgdpna',
@@ -199,23 +238,20 @@ def seed_pwt_metric_codes(conn):
         upsert_metric_code(conn, metric_id, 'pwt', var_name)
         count += 1
 
-    print(f"  ✓ Upserted {count} PWT metric codes")
+    print(f"  ✓ Processed {count} PWT metric codes")
 
 
 # ═══════════════════════════════════════════════════════════════
 # 4. OXFORD METRIC CODE
-# Single metric. Code = XLSX column header ('Score').
 # ═══════════════════════════════════════════════════════════════
 def seed_oxford_metric_codes(conn):
     print("\n── Oxford metric codes ──")
     upsert_metric_code(conn, 'oxford.ai_readiness', 'oxford', 'Score')
-    print("  ✓ Upserted 1 Oxford metric code")
-
+    print("  ✓ Processed 1 Oxford metric code")
 
 
 # ═══════════════════════════════════════════════════════════════
-# 6. OPENALEX METRIC CODE
-# Single metric. Code = OpenAlex concept ID for AI.
+# 5. OPENALEX METRIC CODE
 # ═══════════════════════════════════════════════════════════════
 def seed_openalex_metric_codes(conn):
     print("\n── OpenAlex metric codes ──")
@@ -223,14 +259,13 @@ def seed_openalex_metric_codes(conn):
         conn,
         'openalex.ai_publication_count',
         'openalex',
-        'C154945302'  # OpenAlex concept ID for Artificial Intelligence
+        'C154945302'
     )
-    print("  ✓ Upserted 1 OpenAlex metric code")
+    print("  ✓ Processed 1 OpenAlex metric code")
 
 
 # ═══════════════════════════════════════════════════════════════
-# 7. WIPO IP METRIC CODE
-# Single metric. Code = IPC classification for AI patents.
+# 6. WIPO IP METRIC CODE
 # ═══════════════════════════════════════════════════════════════
 def seed_wipo_metric_codes(conn):
     print("\n── WIPO IP metric codes ──")
@@ -238,33 +273,31 @@ def seed_wipo_metric_codes(conn):
         conn,
         'wipo.ai_patent_count',
         'wipo_ip',
-        '4c'  # IPC class: Computer Science / AI
+        '4c'
     )
-    print("  ✓ Upserted 1 WIPO IP metric code")
+    print("  ✓ Processed 1 WIPO IP metric code")
 
 
 # ═══════════════════════════════════════════════════════════════
-# 8. OECD MSTI METRIC CODES
-# 3 metrics. Codes = OECD MSTI variable codes.
-# Confirmed from OECD MSTI documentation.
+# 7. OECD MSTI METRIC CODES
 # ═══════════════════════════════════════════════════════════════
 def seed_oecd_metric_codes(conn):
     print("\n── OECD MSTI metric codes ──")
 
     oecd_codes = [
-        ('oecd.berd_gdp',                'B'),
-        ('oecd.goverd_gdp',              'GV'),
-        ('oecd.researchers_per_thousand','T_RS'),
+        ('oecd.berd_gdp',                 'B'),
+        ('oecd.goverd_gdp',               'GV'),
+        ('oecd.researchers_per_thousand',  'T_RS'),
     ]
 
     for metric_id, code in oecd_codes:
         upsert_metric_code(conn, metric_id, 'oecd_msti', code)
 
-    print(f"  ✓ Upserted {len(oecd_codes)} OECD MSTI metric codes")
+    print(f"  ✓ Processed {len(oecd_codes)} OECD MSTI metric codes")
 
 
 # ═══════════════════════════════════════════════════════════════
-# MAIN — RUN ALL IN ORDER
+# MAIN
 # ═══════════════════════════════════════════════════════════════
 print("Seeding metadata.metric_codes...")
 print("=" * 50)
@@ -281,9 +314,6 @@ with engine.connect() as conn:
 
 print("\n" + "=" * 50)
 
-# ─────────────────────────────────────────────────────────────
-# VERIFY
-# ─────────────────────────────────────────────────────────────
 result = pd.read_sql("""
     SELECT source_id, COUNT(*) AS metric_code_count
     FROM metadata.metric_codes
