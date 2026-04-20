@@ -166,7 +166,7 @@ class WorldBankTransformer(BaseTransformer):
         # Extract run_date from the most recent checkpoint.
         # All checkpoints from one ingestion run share the same
         # date — we take it from the first (most recent) row.
-        self.run_date = rows[0][1].date().isoformat()
+        self.run_date = date.today().isoformat()
 
         # Return sorted batch_units for deterministic order.
         # Sorting ensures restart skips the same batches

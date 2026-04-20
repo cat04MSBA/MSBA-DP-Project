@@ -310,7 +310,7 @@ CREATE TABLE metadata.countries (
 -- ------------------------------------------------------------
 -- metadata.country_codes
 -- Translation dictionary: source country identifier → ISO3.
--- One row per country per source.
+-- One or more rows per country per source.
 --
 -- Why this exists:
 --   Every source uses different identifiers for the same country.
@@ -318,6 +318,19 @@ CREATE TABLE metadata.countries (
 --   'Lebanon', OpenAlex uses ISO2 'LB'. This table lets any
 --   transformation script translate any source code to ISO3
 --   in one lookup without hardcoded logic.
+--
+-- WHY THE PRIMARY KEY INCLUDES code (not just iso3 + source_id):
+--   Some sources use different name variants for the same country
+--   across editions. Oxford is the primary example — it uses both
+--   'Antigua & Barbuda' (2019 edition) and 'Antigua and Barbuda'
+--   (2022 edition) for the same country (ATG). With a primary key
+--   of (iso3, source_id) only one variant could be stored, causing
+--   the other to fail the country lookup at ingestion time.
+--   Including code in the primary key allows ALL variants to be
+--   stored. The ingestion script builds a {code: iso3} dict from
+--   all rows for that source — any variant resolves correctly.
+--   The UNIQUE (source_id, code) constraint is preserved to prevent
+--   one source code from mapping to two different countries.
 --
 -- Design principle: adding a new source = new rows only.
 -- Zero schema changes ever.
@@ -335,13 +348,17 @@ CREATE TABLE metadata.country_codes (
   -- The source's own identifier for this country.
   -- Examples: 'LB' (IMF), 'LBN' (World Bank),
   --           'Lebanon' (PWT), 'LB' (OpenAlex/WIPO ISO2)
+  -- For Oxford: may have multiple rows per country to cover
+  -- name variants across editions (e.g. 'Antigua & Barbuda'
+  -- and 'Antigua and Barbuda' both mapping to ATG).
 
-  PRIMARY KEY (iso3, source_id),
-  -- One code per country per source.
+  PRIMARY KEY (iso3, source_id, code),
+  -- iso3 + source_id + code uniquely identifies each row.
+  -- Allows multiple name variants per country per source.
 
   UNIQUE (source_id, code)
   -- One source code maps to exactly one country.
-  -- Prevents accidental duplicate mappings.
+  -- Prevents accidental duplicate mappings across countries.
 );
 
 

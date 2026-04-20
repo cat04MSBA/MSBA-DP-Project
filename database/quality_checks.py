@@ -223,7 +223,7 @@ def log_check(conn, run_id, source_id, stage, check_name,
         'stage':          stage,
         'check_name':     check_name,
         'severity':       severity,
-        'passed':         passed,
+        'passed':         bool(passed),  # cast numpy.bool_ to Python bool — psycopg2 cannot adapt numpy types
         'expected_value': str(expected_value) if expected_value is not None else None,
         'actual_value':   str(actual_value)   if actual_value   is not None else None,
         'batch_unit':     batch_unit,

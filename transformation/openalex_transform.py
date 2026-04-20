@@ -104,7 +104,7 @@ class OpenAlexTransformer(BaseTransformer):
                 "within the last 10 days. Run ingestion first."
             )
 
-        self.run_date = rows[0][1].date().isoformat()
+        self.run_date = date.today().isoformat()
         return sorted({row[0] for row in rows})
 
 

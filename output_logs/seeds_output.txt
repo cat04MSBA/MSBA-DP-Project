@@ -1,3 +1,4 @@
+ChloeTabourian@MacBook-Pro-2 MSBA-DP-Project % python3 -m database.run_seeds
 ============================================================
 RUNNING ALL SEED SCRIPTS
 ============================================================
@@ -17,7 +18,7 @@ Current metadata.sources:
    wipo_ip   WIPO IP Statistics — AI Patent Applications       bulk download
 world_bank       World Bank World Development Indicators            REST API
 
-✓ seed_sources.py completed in 9.4s
+✓ seed_sources.py completed in 7.3s
 
 [2/5] Populating metadata.countries (~266 countries)
 ------------------------------------------------------------
@@ -40,7 +41,7 @@ iso3         country_name                                                       
  PSE   West Bank and Gaza                                 Palestine — listed as West Bank and Gaza by World Bank.
  XKX               Kosovo Kosovo — informal ISO code XKX used by World Bank. Not officially assigned by ISO 3166.
 
-✓ seed_countries.py completed in 74.9s
+✓ seed_countries.py completed in 58.2s
 
 [3/5] Populating metadata.metrics (all sources)
 ------------------------------------------------------------
@@ -96,7 +97,7 @@ world_bank           439
 
 Total metrics: 624
 
-✓ seed_metrics.py completed in 196.6s
+✓ seed_metrics.py completed in 152.4s
 
 [4/5] Populating metadata.country_codes (crosswalk)
 ------------------------------------------------------------
@@ -105,11 +106,12 @@ Seeding metadata.country_codes...
 Loaded 217 countries from metadata.countries
 
 ── World Bank country codes ──
-  ✓ Upserted 217 World Bank country codes
+  ✓ Processed 217 World Bank country codes
 
 ── IMF country codes ──
-  ✓ Upserted 217 IMF country codes
-  ⚠ 22 IMF codes could not be matched to ISO3:
+  ⚠ Skipping code mapping change for XKX (imf): stored='KOS', incoming='UVK'. Use drift detection to review this change.
+  ✓ Processed 217 IMF country codes
+  ⚠ 22 IMF codes unmatched:
     - AIA: Anguilla
     - COK: Cook Islands
     - ESH: Western Sahara
@@ -118,24 +120,37 @@ Loaded 217 countries from metadata.countries
     ... and 17 more
 
 ── PWT country codes ──
-  ✓ Upserted 182 PWT country codes
-  ⚠ 3 PWT countries not in our table:
+  ✓ Processed 182 PWT country codes (read from data/raw/pwt/pwt110.dta)
+  ⚠ 3 PWT countries not in metadata.countries:
     - AIA: Anguilla
     - MSR: Montserrat
     - TWN: Taiwan
+    Insert these into metadata.countries manually then re-run this script.
 
 ── Oxford country codes ──
-  ✓ Upserted 217 Oxford country codes
+    ✓ oxford_2019.xlsx: 194 unique country names
+    ✓ oxford_2020.xlsx: 172 unique country names
+    ✓ oxford_2021.xlsx: 160 unique country names
+    ✓ oxford_2022.xlsx: 181 unique country names
+    ✓ oxford_2023.xlsx: 193 unique country names
+    ✓ oxford_2024.xlsx: 188 unique country names
+    ✓ oxford_2025.xlsx: 195 unique country names
+  Found 215 unique country names across all editions
+  ✓ Processed 214 Oxford country codes (214 high confidence, 0 medium confidence)
+  ✗ 1 Oxford names could not be matched:
+    - Taiwan
+    Add these to OXFORD_MANUAL_OVERRIDES in seed_country_codes.py and re-run.
 
 ── OpenAlex country codes ──
-  ✓ Upserted 215 OpenAlex country codes
-  ⚠ 2 countries have no ISO2 mapping via pycountry
+  ✓ Processed 215 OpenAlex country codes
+  ⚠ 2 countries have no ISO2 mapping
 
-── WIPO IP country codes ──
-  ✓ Upserted 217 WIPO IP country codes
+── WIPO IP country codes ── (uses ISO2)
+  ✓ Processed 215 WIPO IP country codes (ISO2)
+  ⚠ 2 countries have no ISO2 mapping
 
 ── OECD MSTI country codes ──
-  ✓ Upserted 217 OECD MSTI country codes
+  ✓ Processed 217 OECD MSTI country codes
 
 ==================================================
 
@@ -144,14 +159,14 @@ Country codes per source:
        imf                 216
  oecd_msti                 217
   openalex                 215
-    oxford                 217
+    oxford                 214
        pwt                 182
-   wipo_ip                 217
+   wipo_ip                 215
 world_bank                 217
 
-Total country codes: 1481
+Total country codes: 1476
 
-✓ seed_country_codes.py completed in 428.9s
+✓ seed_country_codes.py completed in 323.3s
 
 [5/5] Populating metadata.metric_codes (crosswalk)
 ------------------------------------------------------------
@@ -166,25 +181,25 @@ Seeding metadata.metric_codes...
     ✓ topic 9: 78 codes
     ✓ topic 14: 13 codes
     ✓ topic 21: 155 codes
-  ✓ Upserted 466 World Bank metric codes
+  ✓ Processed 466 World Bank metric codes
 
 ── IMF metric codes ──
-  ✓ Upserted 132 IMF metric codes
+  ✓ Processed 132 IMF metric codes
 
 ── PWT metric codes ──
-  ✓ Upserted 47 PWT metric codes
+  ✓ Processed 47 PWT metric codes
 
 ── Oxford metric codes ──
-  ✓ Upserted 1 Oxford metric code
+  ✓ Processed 1 Oxford metric code
 
 ── OpenAlex metric codes ──
-  ✓ Upserted 1 OpenAlex metric code
+  ✓ Processed 1 OpenAlex metric code
 
 ── WIPO IP metric codes ──
-  ✓ Upserted 1 WIPO IP metric code
+  ✓ Processed 1 WIPO IP metric code
 
 ── OECD MSTI metric codes ──
-  ✓ Upserted 3 OECD MSTI metric codes
+  ✓ Processed 3 OECD MSTI metric codes
 
 ==================================================
 
@@ -200,10 +215,10 @@ world_bank                439
 
 Total metric codes: 624
 
-✓ seed_metric_codes.py completed in 197.6s
+✓ seed_metric_codes.py completed in 282.0s
 
 ============================================================
-ALL SEED SCRIPTS COMPLETED in 907.4s
+ALL SEED SCRIPTS COMPLETED in 823.3s
 ============================================================
 
 Next steps:

@@ -3,62 +3,32 @@ ingestion/pwt_ingest.py
 =======================
 Ingestion script for Penn World Tables 11.0.
 
-INHERITS FROM: BaseIngestor
-IMPLEMENTS: fetch(), fetch_metric_metadata(), get_batch_units(),
-            get_b2_key(), serialize(), deserialize()
+BATCH UNIT DESIGN — PER METRIC:
+    PWT has 47 metric variables. Each is processed as a separate
+    batch unit — batch_unit = variable name (e.g. 'rgdpe', 'pop').
 
-WHAT THIS SCRIPT DOES:
-    Reads the PWT 11.0 Stata .dta file from B2 (uploaded manually
-    via upload_to_b2.py), melts all 47 metric variables from wide
-    format to tall format, and produces a standardized DataFrame
-    for the quality check pipeline.
+    WHY PER METRIC IS CRITICAL FOR PWT:
+        PWT is the largest source — up to 640,000 rows (185
+        countries × 74 years × 47 metrics before NaN dropping).
+        If the script crashes on metric 40, per-metric checkpointing
+        means restart skips metrics 1-39 and resumes from metric 40.
+        Without per-metric, a crash on metric 40 forces reprocessing
+        all 39 completed metrics — potentially an hour of wasted work.
 
-MANUAL SOURCE WORKFLOW:
-    1. Team member downloads pwt110.dta from:
-       https://www.rug.nl/ggdc/productivity/pwt/
-    2. Runs: python3 database/upload_to_b2.py --source pwt
-             --file pwt110.dta
-    3. upload_to_b2.py uploads to bronze/pwt/ and triggers
-       this subflow
+    THE STATA FILE IS READ ONCE. The full DataFrame is cached in
+    memory and each fetch() call extracts one metric's rows from
+    the cache. No re-reading the file per metric.
 
-PWT FILE STRUCTURE (confirmed from actual pwt110.dta):
-    - 13,690 rows: 185 countries × 74 years (1950-2023)
-    - 51 columns: countrycode, country, currency_unit, year,
-      then 47 metric variables (rgdpe, rgdpo, pop, etc.)
-    - countrycode = ISO3 directly — no crosswalk needed
-    - country = country name (used for PWT crosswalk in
-      metadata.country_codes, not for standardization)
-    - All metric columns are float64 with NaN for missing values
+B2 FILE NAMING (per metric):
+    bronze/pwt/rgdpe_2026-04-21.json
+    bronze/pwt/pop_2026-04-21.json
+    ... one per variable
 
-WHY WIDE → TALL TRANSFORMATION AT INGESTION:
-    PWT is wide format — one row per country-year, one column
-    per metric. The silver layer requires tall format — one row
-    per country-year-metric. pd.melt() converts efficiently.
-    The melted DataFrame is what gets saved to B2 as JSON.
-
-WHY NaN ROWS ARE DROPPED AT INGESTION:
-    PWT has many NaN values — not all metrics are available for
-    all countries and years. Absence of a row = absence of data.
-    Storing NaN would add millions of meaningless rows.
-
-WHY countrycode IS USED DIRECTLY (no crosswalk):
-    PWT uses ISO3 codes (e.g. 'LBN', 'USA') in the countrycode
-    column. No mapping needed — countrycode goes directly into
-    country_iso3. This was confirmed by inspecting the actual
-    pwt110.dta file.
-
-SCALE:
-    Raw file: 13,690 rows × 47 metrics = up to 643,430 observations.
-    After dropping NaN: significantly fewer (PWT is sparse).
-    This is the largest source in the pipeline by row count.
-
-B2 FILE NAMING:
-    bronze/pwt/full_file_{retrieved_date}.json
-
-RETRY LOGIC:
-    3 retries with 1/5/10 minute backoff for B2 read failures.
-    Stata file parsing failures halt immediately — if corrupt,
-    retrying reads the same corrupt file.
+FILE PATH:
+    The original .dta is uploaded by upload_to_b2.py to:
+        bronze/pwt/source_{date}.dta
+    Ingestion reads from there, processes per metric, saves
+    per-metric JSON files.
 
 ENV VARS REQUIRED:
     DATABASE_URL, B2_KEY_ID, B2_APPLICATION_KEY,
@@ -70,7 +40,6 @@ import time
 import pandas as pd
 from datetime import date
 from io import BytesIO
-from sqlalchemy import text
 
 from database.base_ingestor import BaseIngestor
 
@@ -78,14 +47,8 @@ from database.base_ingestor import BaseIngestor
 # CONSTANTS
 # ─────────────────────────────────────────────────────────────
 
-# Columns that identify a row — not metric variables.
-# These are excluded from the melt operation.
-PWT_ID_COLUMNS = ['countrycode', 'country', 'currency_unit', 'year']
-
-# Metric variables to ingest — matches PWT_VARIABLE_LABELS
-# in seed_metrics.py exactly. Hardcoded to avoid ingesting
-# identifier columns (countrycode, country, etc.) as metrics.
-PWT_METRIC_VARIABLES = {
+# All 47 PWT metric variables — matches seed_metrics.py exactly.
+PWT_METRIC_VARIABLES = [
     'rgdpe', 'rgdpo', 'pop', 'emp', 'avh', 'hc', 'ccon', 'cda',
     'cgdpe', 'cgdpo', 'cn', 'ck', 'ctfp', 'cwtfp', 'rgdpna',
     'rconna', 'rdana', 'rnna', 'rkna', 'rtfpna', 'rwtfpna',
@@ -93,140 +56,97 @@ PWT_METRIC_VARIABLES = {
     'i_cig', 'i_xm', 'i_xr', 'i_outlier', 'i_irr', 'cor_exp',
     'csh_c', 'csh_i', 'csh_g', 'csh_x', 'csh_m', 'csh_r',
     'pl_c', 'pl_i', 'pl_g', 'pl_x', 'pl_m', 'pl_n', 'pl_k',
-}
+]
 
-# Retry backoff delays (design document Section 9).
 RETRY_DELAYS = [60, 300, 600]
 
 
 class PWTIngestor(BaseIngestor):
-    """
-    Ingestion script for Penn World Tables 11.0.
-    Inherits all pipeline orchestration from BaseIngestor.
-    """
 
     def __init__(self):
         super().__init__(source_id='pwt')
-        self.run_date = date.today().isoformat()
+        self.run_date    = date.today().isoformat()
+        self._pwt_df     = None   # full DataFrame cached after first read
+        self._since_date = None
 
-
-    # ═══════════════════════════════════════════════════════
-    # get_batch_units
-    # ═══════════════════════════════════════════════════════
 
     def get_batch_units(self, since_date: date) -> list:
         """
-        PWT is a single full-file source. Always returns
-        ['full_file'] — one batch unit, one B2 file, one
-        checkpoint per run.
-
-        WHY SINGLE BATCH UNIT:
-            PWT releases one complete .dta file covering all
-            185 countries and all years (1950-2023). There is
-            no meaningful sub-unit. The entire file is processed
-            in one pass.
-
-        WHY since_date IS NOT USED AT BATCH UNIT LEVEL:
-            since_date filtering is applied at ingestion time
-            after melting — only rows within the revision window
-            are saved to B2. The batch unit is always 'full_file'
-            regardless of since_date.
+        Return one batch unit per PWT metric variable.
+        47 batch units: ['rgdpe', 'rgdpo', 'pop', ...].
+        Stores since_date for use in fetch().
         """
-        return ['full_file']
+        self._since_date = since_date
+        return PWT_METRIC_VARIABLES
 
 
-    # ═══════════════════════════════════════════════════════
-    # fetch
-    # ═══════════════════════════════════════════════════════
-
-    def fetch(self, batch_unit: str,
-              since_date: date) -> tuple:
+    def fetch(self, batch_unit: str, since_date: date) -> tuple:
         """
-        Read PWT .dta from B2, melt wide → tall, filter by
-        since_date, return standardized DataFrame.
+        Return rows for one PWT variable from the cached DataFrame.
+        Reads the Stata file once on first call, caches it.
+        All subsequent calls read from the cache — no re-reading.
 
         Args:
-            batch_unit: Always 'full_file'.
-            since_date: Start of the 5-year revision window.
+            batch_unit: PWT variable name e.g. 'rgdpe'.
 
         Returns:
-            (raw_row_count, df)
+            (raw_row_count, df) for this variable only.
         """
-        last_error = None
+        # ── Read Stata file once, cache for all 47 metrics ────
+        if self._pwt_df is None:
+            last_error = None
+            for attempt, delay in enumerate(RETRY_DELAYS, 1):
+                try:
+                    self._pwt_df = self._read_stata_file(since_date)
+                    break
+                except Exception as e:
+                    last_error = e
+                    if attempt < len(RETRY_DELAYS):
+                        print(f"    [retry {attempt}] PWT: {e}. Waiting {delay}s...")
+                        time.sleep(delay)
+            else:
+                raise RuntimeError(
+                    f"PWT failed after {len(RETRY_DELAYS)} retries. "
+                    f"Last error: {last_error}"
+                )
 
-        for attempt, delay in enumerate(RETRY_DELAYS, 1):
-            try:
-                return self._read_pwt_file(since_date)
-            except Exception as e:
-                last_error = e
-                if attempt < len(RETRY_DELAYS):
-                    print(
-                        f"    [retry {attempt}] PWT: {e}. "
-                        f"Waiting {delay}s..."
-                    )
-                    time.sleep(delay)
+        # ── Extract this metric's rows ─────────────────────────
+        metric_id  = f"pwt.{batch_unit}"
+        df_metric  = self._pwt_df[
+            self._pwt_df['metric_id'] == metric_id
+        ].copy().reset_index(drop=True)
 
-        raise RuntimeError(
-            f"PWT failed after {len(RETRY_DELAYS)} retries. "
-            f"Last error: {last_error}"
-        )
+        raw_row_count = len(df_metric)
+        return raw_row_count, df_metric
 
-    def _read_pwt_file(self, since_date: date) -> tuple:
+
+    def _read_stata_file(self, since_date: date) -> pd.DataFrame:
         """
-        Download PWT .dta from B2, melt to tall format,
-        apply since_date filter, return canonical DataFrame.
-
-        WHY pd.read_stata WITH convert_categoricals=False:
-            PWT uses Stata categorical labels for some columns.
-            convert_categoricals=False returns raw numeric values
-            instead of Stata label strings, which is what we want
-            for the metric variables. The countrycode column is
-            a plain string and unaffected.
-
-        WHY MELT IS DONE BEFORE FILTERING:
-            Melting first then filtering is more efficient than
-            filtering first then melting. After melt, a simple
-            year >= since_year comparison on one column removes
-            all out-of-window rows in one vectorized operation.
-
-        Args:
-            since_date: Filter rows from since_date.year.
-
-        Returns:
-            (raw_row_count, df)
+        Download .dta from B2, melt all 47 variables wide→tall,
+        apply since_date filter, return full tall DataFrame.
+        The full DataFrame is cached — not split by metric yet.
         """
-        b2_key   = self.get_b2_key('full_file')
-        dta_bytes = self.b2.download(b2_key)
+        source_key = f"bronze/pwt/source_{self.run_date}.dta"
+        dta_bytes  = self.b2.download(source_key)
 
-        # ── Read Stata file ────────────────────────────────────
-        # convert_categoricals=False: return raw values not labels.
-        # PWT .dta is ~20MB — fully loaded into memory.
-        # At 185 countries × 74 years = 13,690 rows this is fine.
+        # Read Stata file — convert_categoricals=False returns
+        # raw numeric values not Stata label strings.
         df_wide = pd.read_stata(
             BytesIO(dta_bytes),
-            convert_categoricals = False,
+            convert_categoricals=False,
         )
 
-        # ── Identify metric columns present in this file ───────
-        # Intersection of PWT_METRIC_VARIABLES and actual columns.
-        # Protects against PWT adding or removing variables in
-        # future releases without breaking the pipeline.
+        # Only melt variables that exist in this file AND are
+        # in our variable list — handles future PWT version changes.
         metric_cols = [
             col for col in df_wide.columns
-            if col.lower() in PWT_METRIC_VARIABLES
+            if col.lower() in set(PWT_METRIC_VARIABLES)
         ]
 
         if not metric_cols:
-            raise ValueError(
-                "No recognised metric columns found in PWT file. "
-                "File format may have changed."
-            )
+            raise ValueError("No recognised metric columns in PWT file.")
 
-        # ── Melt wide → tall ───────────────────────────────────
-        # id_vars: countrycode and year identify each row.
-        # country and currency_unit are excluded — not needed
-        # for standardization (countrycode is already ISO3).
-        # value_vars: the 47 metric variables.
+        # Melt wide → tall. countrycode and year identify each row.
         df_tall = df_wide.melt(
             id_vars    = ['countrycode', 'year'],
             value_vars = metric_cols,
@@ -234,111 +154,44 @@ class PWTIngestor(BaseIngestor):
             value_name = 'value',
         )
 
-        # ── Drop NaN values ────────────────────────────────────
-        # PWT is sparse — many country-year-metric combinations
-        # have no data. Dropping NaN before counting raw_row_count
-        # because NaN rows are never intended to enter the pipeline.
+        # Drop NaN values — absence of data = no row.
         df_tall = df_tall[df_tall['value'].notna()].copy()
 
-        # raw_row_count = non-null (country, year, metric) triples.
-        # This is what check_ingestion_pre() compares against len(df).
-        raw_row_count = len(df_tall)
-
-        # ── Apply since_date filter ────────────────────────────
-        since_year = since_date.year
+        # Apply since_date filter.
         df_tall = df_tall[
-            df_tall['year'] >= since_year
+            df_tall['year'] >= since_date.year
         ].copy()
 
-        # ── Build canonical DataFrame ──────────────────────────
-        df = self._parse_pwt(df_tall)
-
-        return raw_row_count, df
-
-    def _parse_pwt(self, df_tall: pd.DataFrame) -> pd.DataFrame:
-        """
-        Convert melted DataFrame to canonical silver layer shape.
-
-        metric_id convention: pwt.{variable_name}
-        Examples: rgdpe → pwt.rgdpe, rtfpna → pwt.rtfpna
-
-        WHY countrycode IS USED DIRECTLY AS country_iso3:
-            PWT uses ISO3 codes (confirmed from actual pwt110.dta:
-            'LBN', 'USA', 'FRA'). No mapping needed. Direct use
-            avoids an unnecessary join and keeps transformation fast.
-
-        WHY VALUES ARE CAST TO str(float) NOT str(int):
-            PWT values are floats (GDP in millions, TFP indices,
-            shares, etc.). Unlike WIPO counts, these are genuinely
-            decimal. We use :.10g same as World Bank and IMF.
-
-        Args:
-            df_tall: Melted DataFrame with countrycode, year,
-                     variable, value columns.
-
-        Returns:
-            Canonical DataFrame.
-        """
-        # Vectorized operations are faster than row-by-row loops
-        # for a DataFrame that can have hundreds of thousands of rows.
-        df = df_tall.copy()
-
-        # Construct metric_id: pwt.{variable_name}
-        df['metric_id'] = 'pwt.' + df['variable'].str.lower()
-
-        # country_iso3 directly from countrycode (already ISO3).
-        df = df.rename(columns={'countrycode': 'country_iso3'})
-
-        # Cast year to int (may be float after Stata read).
-        df['year'] = df['year'].astype(int)
-
-        # Cast value to controlled string representation.
-        # :.10g: up to 10 significant figures without scientific
-        # notation for normal economic values.
-        df['value'] = df['value'].apply(
-            lambda v: f"{float(v):.10g}"
-            if pd.notna(v) else ''
+        # Build canonical shape with metric_id column.
+        df_tall['metric_id']    = 'pwt.' + df_tall['variable'].str.lower()
+        df_tall['country_iso3'] = df_tall['countrycode']
+        df_tall['year']         = df_tall['year'].astype(int)
+        df_tall['period']       = 'annual'
+        df_tall['source_id']    = 'pwt'
+        df_tall['retrieved_at'] = date.today().isoformat()
+        df_tall['value']        = df_tall['value'].apply(
+            lambda v: f"{float(v):.10g}" if pd.notna(v) else ''
         )
+        df_tall = df_tall[df_tall['value'] != ''].copy()
 
-        # Drop any empty values produced by the cast.
-        df = df[df['value'] != ''].copy()
-
-        # Add remaining required columns.
-        df['period']       = 'annual'
-        df['source_id']    = 'pwt'
-        df['retrieved_at'] = date.today().isoformat()
-
-        # Return only canonical columns in the correct order.
-        return df[[
+        return df_tall[[
             'country_iso3', 'year', 'period', 'metric_id',
             'value', 'source_id', 'retrieved_at'
         ]].reset_index(drop=True)
 
 
-    # ═══════════════════════════════════════════════════════
-    # fetch_metric_metadata
-    # ═══════════════════════════════════════════════════════
-
     def fetch_metric_metadata(self, metric_id: str) -> dict:
         """
-        Fetch metadata for an unknown PWT variable.
-        PWT variables are hardcoded in seed_metrics.py.
-        This method handles the rare case of a new variable
-        appearing in a future PWT release.
-
-        PWT embeds variable labels in the .dta file — we
-        read the label directly from the Stata file on B2.
+        Attempt to read variable label from the .dta file on B2.
+        Falls back to variable name if file is unavailable.
         """
-        # Reverse metric_id to variable name: pwt.rgdpe → rgdpe
         var_name = metric_id.replace('pwt.', '')
-
-        # Attempt to read label from the .dta file on B2.
         try:
-            b2_key    = self.get_b2_key('full_file')
-            dta_bytes = self.b2.download(b2_key)
-            reader    = pd.io.stata.StataReader(BytesIO(dta_bytes))
-            labels    = reader.variable_labels()
-            label     = labels.get(var_name, var_name)
+            source_key = f"bronze/pwt/source_{self.run_date}.dta"
+            dta_bytes  = self.b2.download(source_key)
+            reader     = pd.io.stata.StataReader(BytesIO(dta_bytes))
+            labels     = reader.variable_labels()
+            label      = labels.get(var_name, var_name)
         except Exception:
             label = var_name
 
@@ -353,58 +206,20 @@ class PWTIngestor(BaseIngestor):
         }
 
 
-    # ═══════════════════════════════════════════════════════
-    # get_b2_key
-    # ═══════════════════════════════════════════════════════
-
     def get_b2_key(self, batch_unit: str) -> str:
         """
-        Return the B2 key for the PWT file.
-
-        WHY JSON NOT .dta:
-            The ingestion script saves the melted tall-format
-            DataFrame as JSON — not the original .dta. The
-            original .dta is uploaded by upload_to_b2.py to
-            a separate path (bronze/pwt/pwt110.dta). The
-            ingestion script reads the .dta, melts it, and
-            saves the result as JSON for the transformation
-            script to consume. Two files on B2:
-            - bronze/pwt/pwt110.dta → original file (faithful)
-            - bronze/pwt/full_file_{date}.json → parsed result
-
-        Naming convention:
-            bronze/pwt/full_file_2026-04-20.json
+        bronze/pwt/{variable_name}_{date}.json
+        e.g. bronze/pwt/rgdpe_2026-04-21.json
         """
         return f"bronze/pwt/{batch_unit}_{self.run_date}.json"
 
-    def get_b2_key_source(self) -> str:
-        """
-        Return the B2 key where upload_to_b2.py stored the
-        original .dta file. Used by _read_pwt_file() to
-        download the source file before processing.
-        """
-        return "bronze/pwt/pwt110.dta"
-
-
-    # ═══════════════════════════════════════════════════════
-    # serialize / deserialize
-    # ═══════════════════════════════════════════════════════
 
     def serialize(self, df: pd.DataFrame) -> bytes:
-        """
-        Serialize the parsed tall DataFrame to JSON bytes.
-        Saves the canonical shape, not the original .dta.
-        """
-        return df.to_json(
-            orient='records',
-            date_format='iso',
-        ).encode('utf-8')
+        return df.to_json(orient='records', date_format='iso').encode('utf-8')
 
     def deserialize(self, data: bytes) -> pd.DataFrame:
-        """Deserialize JSON bytes from B2 into DataFrame."""
         return pd.read_json(BytesIO(data), orient='records')
 
 
 if __name__ == "__main__":
-    ingestor = PWTIngestor()
-    ingestor.run()
+    PWTIngestor().run()
