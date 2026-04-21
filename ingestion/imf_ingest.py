@@ -445,7 +445,7 @@ class IMFIngestor(BaseIngestor):
         Deserialize JSON bytes from B2 back into a DataFrame.
         Exact inverse of serialize().
         """
-        return pd.read_json(BytesIO(data), orient='records')
+        return pd.read_json(BytesIO(data), orient='records', convert_dates=False, dtype=False)
 
 
     # ═══════════════════════════════════════════════════════

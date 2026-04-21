@@ -525,7 +525,7 @@ class OxfordIngestor(BaseIngestor):
 
     def deserialize(self, data: bytes) -> pd.DataFrame:
         """Deserialize parsed JSON from B2 into DataFrame."""
-        return pd.read_json(BytesIO(data), orient='records')
+        return pd.read_json(BytesIO(data), orient='records', convert_dates=False, dtype=False)
 
     def get_b2_key_parsed(self, batch_unit: str) -> str:
         """

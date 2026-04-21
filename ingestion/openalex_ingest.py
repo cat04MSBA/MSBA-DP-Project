@@ -290,6 +290,18 @@ class OpenAlexIngestor(BaseIngestor):
             if not country_code or count == 0:
                 continue
 
+            # OpenAlex API returns full URIs for country codes in
+            # newer API versions:
+            #   https://openalex.org/countries/CN → CN
+            # Strip the URI prefix to get the bare ISO2 code.
+            # Older API versions return bare codes (e.g. 'CN')
+            # directly — the split/last operation handles both.
+            if '/' in country_code:
+                country_code = country_code.split('/')[-1].strip()
+
+            if not country_code:
+                continue
+
             rows.append({
                 # Store ISO2 code here — transformation maps to ISO3.
                 'country_iso3': country_code,
@@ -384,7 +396,7 @@ class OpenAlexIngestor(BaseIngestor):
 
     def deserialize(self, data: bytes) -> pd.DataFrame:
         """Deserialize JSON bytes from B2 into a DataFrame."""
-        return pd.read_json(BytesIO(data), orient='records')
+        return pd.read_json(BytesIO(data), orient='records', convert_dates=False, dtype=False)
 
 
 if __name__ == "__main__":

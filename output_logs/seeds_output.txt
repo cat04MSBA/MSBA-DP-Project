@@ -170,58 +170,57 @@ Total country codes: 1476
 
 [5/5] Populating metadata.metric_codes (crosswalk)
 ------------------------------------------------------------
-Seeding metadata.metric_codes...
+Seeding metadata.country_codes...
+==================================================
+Loaded 220 countries from metadata.countries
+
+── World Bank country codes ──
+  ✓ Processed 220 World Bank country codes
+
+── IMF country codes ──
+  ⚠ Skipping code mapping change for XKX (imf): stored='KOS', incoming='UVK'. Use drift detection to review this change.
+  ✓ Processed 220 IMF country codes
+  ⚠ 19 IMF codes unmatched:
+    - COK: Cook Islands
+    - ESH: Western Sahara
+    - FLK: Falkland Islands
+    - GLP: Guadeloupe
+    - GUF: French Guiana
+    ... and 14 more
+
+── PWT country codes ──
+  ✓ Processed 185 PWT country codes (read from data/raw/pwt/pwt110.dta)
+
+── Oxford country codes ──
+    ✓ oxford_2019.xlsx: 194 unique country names
+    ✓ oxford_2020.xlsx: 172 unique country names
+    ✓ oxford_2021.xlsx: 160 unique country names
+    ✓ oxford_2022.xlsx: 181 unique country names
+    ✓ oxford_2023.xlsx: 193 unique country names
+    ✓ oxford_2024.xlsx: 188 unique country names
+    ✓ oxford_2025.xlsx: 195 unique country names
+  Found 215 unique country names across all editions
+  ✓ Processed 215 Oxford country codes (215 high confidence, 0 medium confidence)
+
+── OpenAlex country codes ──
+  ✓ Processed 218 OpenAlex country codes
+  ⚠ 2 countries have no ISO2 mapping
+
+── WIPO IP country codes ── (uses ISO2)
+  ✓ Processed 218 WIPO IP country codes (ISO2)
+  ⚠ 2 countries have no ISO2 mapping
+
+── OECD MSTI country codes ──
+  ✓ Processed 220 OECD MSTI country codes
+
 ==================================================
 
-── World Bank metric codes ──
-    ✓ topic 1: 49 codes
-    ✓ topic 2: 77 codes
-    ✓ topic 4: 41 codes
-    ✓ topic 5: 53 codes
-    ✓ topic 9: 78 codes
-    ✓ topic 14: 13 codes
-    ✓ topic 21: 155 codes
-  ✓ Processed 466 World Bank metric codes
-
-── IMF metric codes ──
-  ✓ Processed 132 IMF metric codes
-
-── PWT metric codes ──
-  ✓ Processed 47 PWT metric codes
-
-── Oxford metric codes ──
-  ✓ Processed 1 Oxford metric code
-
-── OpenAlex metric codes ──
-  ✓ Processed 1 OpenAlex metric code
-
-── WIPO IP metric codes ──
-  ✓ Processed 1 WIPO IP metric code
-
-── OECD MSTI metric codes ──
-  ✓ Processed 3 OECD MSTI metric codes
-
-==================================================
-
-Metric codes per source:
- source_id  metric_code_count
-       imf                132
- oecd_msti                  3
-  openalex                  1
-    oxford                  1
-       pwt                 47
-   wipo_ip                  1
-world_bank                439
-
-Total metric codes: 624
-
-✓ seed_metric_codes.py completed in 282.0s
-
-============================================================
-ALL SEED SCRIPTS COMPLETED in 823.3s
-============================================================
-
-Next steps:
-  1. Run ingestion scripts to pull actual data
-  2. After ingestion, run calculate_coverage.py to
-     populate available_from and available_to in metadata.metrics
+Country codes per source:
+ source_id  country_code_count
+       imf                 219
+ oecd_msti                 220
+  openalex                 218
+    oxford                 215
+       pwt                 185
+   wipo_ip                 218
+world_bank                 220

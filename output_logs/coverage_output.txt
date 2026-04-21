@@ -1,0 +1,16 @@
+==================================================
+Calculating metric coverage...
+  Filtering to source: oecd_msti
+==================================================
+  Found 3 metrics to calculate coverage for
+  Found coverage data for 3 metrics in standardized.observations
+
+  ✓ Updated:   3 metrics
+  → Unchanged: 0 metrics (coverage same)
+  → No data:   0 metrics (no observations yet)
+
+  Coverage by source:
+source_id  metrics  earliest_year  latest_year  missing_coverage
+oecd_msti        3           2021         2025                 0
+
+✓ Coverage calculation complete.

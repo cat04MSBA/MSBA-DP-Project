@@ -147,6 +147,11 @@ def compute_checksum(df: pd.DataFrame) -> str:
     Compute SHA256 checksum on sorted tuples of
     (country_iso3, metric_id, year, value).
 
+    Returns a fixed constant for empty DataFrames —
+    an empty dataset is a valid state (e.g. a deprecated
+    indicator that returns no data). The constant is
+    deterministic so two empty DataFrames always match.
+
     WHY THESE FOUR COLUMNS:
         These define a unique observation. source_id,
         retrieved_at, and period are pipeline metadata —
@@ -156,14 +161,22 @@ def compute_checksum(df: pd.DataFrame) -> str:
     WHY SORTED:
         Order-independent — two identical datasets in different
         row orders produce the same checksum.
-
-    Args:
-        df: DataFrame with columns country_iso3, metric_id,
-            year, value.
-
-    Returns:
-        SHA256 hex digest string.
     """
+    if df.empty or len(df) == 0:
+        # Fixed constant for empty datasets.
+        # Deterministic — two empty DataFrames always match.
+        return hashlib.sha256(b'empty').hexdigest()
+
+    # Verify required columns exist before accessing them.
+    required = {'country_iso3', 'metric_id', 'year', 'value'}
+    missing  = required - set(df.columns)
+    if missing:
+        # DataFrame has wrong shape — return distinct checksum
+        # so a mismatch is detected downstream.
+        return hashlib.sha256(
+            f'missing_columns:{sorted(missing)}'.encode()
+        ).hexdigest()
+
     tuples = sorted(
         zip(
             df['country_iso3'].astype(str),
@@ -285,9 +298,9 @@ def check_ingestion_post(conn, run_id, source_id, batch_unit,
     Verify the DataFrame survived the B2 write without
     corruption or data loss. Checks both checksum and row count.
 
-    Args:
-        df_before: DataFrame before writing to B2.
-        df_after:  DataFrame read back from B2 after writing.
+    Skips all checks for empty DataFrames — 0 rows is a valid
+    state (deprecated indicator, no data in date range) and
+    there is nothing to verify.
 
     Returns:
         (verified_checksum, verified_row_count) on success.
@@ -295,10 +308,16 @@ def check_ingestion_post(conn, run_id, source_id, batch_unit,
     Raises:
         CriticalCheckError: if checksum or row count mismatch.
     """
+    count_before = len(df_before)
+    count_after  = len(df_after)
+
+    # Empty DataFrames — skip checks, return consistent values.
+    # Nothing to verify when there is no data.
+    if count_before == 0 and count_after == 0:
+        return hashlib.sha256(b'empty').hexdigest(), 0
+
     checksum_before = compute_checksum(df_before)
     checksum_after  = compute_checksum(df_after)
-    count_before    = len(df_before)
-    count_after     = len(df_after)
 
     # ── checksum ──
     checksum_passed  = (checksum_before == checksum_after)

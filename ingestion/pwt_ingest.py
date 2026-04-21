@@ -218,7 +218,7 @@ class PWTIngestor(BaseIngestor):
         return df.to_json(orient='records', date_format='iso').encode('utf-8')
 
     def deserialize(self, data: bytes) -> pd.DataFrame:
-        return pd.read_json(BytesIO(data), orient='records')
+        return pd.read_json(BytesIO(data), orient='records', convert_dates=False, dtype=False)
 
 
 if __name__ == "__main__":

@@ -315,7 +315,7 @@ class WorldBankTransformer(BaseTransformer):
         Returns:
             DataFrame with columns as stored by ingestion.
         """
-        return pd.read_json(BytesIO(data), orient='records')
+        return pd.read_json(BytesIO(data), orient='records', convert_dates=False, dtype=False)
 
 
     # ═══════════════════════════════════════════════════════

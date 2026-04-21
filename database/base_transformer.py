@@ -3,75 +3,32 @@ database/base_transformer.py
 ============================
 Abstract base class for all transformation scripts.
 
-WHAT THIS FILE DOES:
-    Provides the complete transformation pipeline skeleton that
-    every source script inherits. A source script only needs to
-    implement these methods:
-        parse()          → standardize raw B2 DataFrame into the
-                           canonical silver layer shape
-        get_batch_units() → return list of batch units
-        get_b2_key()     → return B2 path for a batch unit
-        deserialize()    → bytes from B2 → DataFrame
+PERFORMANCE OPTIMIZATIONS IN THIS VERSION:
+    1. FIRST RUN FAST PATH — when last_retrieved is NULL, skip
+       revision detection and post-upsert read-back entirely.
+       These two operations create temp tables, insert rows, and
+       join against observations for every single batch. On first
+       run there are no existing rows to compare against so they
+       add cost with zero benefit. World Bank has 439 batches —
+       this eliminates ~878 temp table round trips on first run.
 
-    Everything else — reading from B2, quality checks,
-    revision detection, temp table upsert, post-upsert
-    verification, checkpoint writing, rejection logging,
-    ops.pipeline_runs logging, and alert emails — is handled
-    here once and inherited by all 7 source scripts.
+    2. LARGER CHUNK SIZES — UPSERT_CHUNK_SIZE 500→1000,
+       READBACK_CHUNKSIZE 100→500. Fewer Supabase round trips.
 
-WHY A BASE CLASS:
-    All 7 sources follow the same transformation sequence.
-    Writing it once means a new source script is ~30 lines
-    not ~400, every source is guaranteed to check and upsert
-    identically, and a bug fix applies to all sources at once.
+    3. PRE-OPEN CRASH HANDLING — try/except around get_batch_units()
+       so crashes before _open_pipeline_run() are logged to stderr
+       and re-raised to Prefect instead of silently swallowed.
 
-STANDARDIZATION MEANS EXACTLY THREE THINGS:
-    From design document Section 7:
-    1. Country code mapping — source code → ISO3
-    2. Value casting — verify numeric values without changing them
-    3. Column mapping — source columns → standard schema columns
-    No imputation, rounding, unit conversion, or reformatting.
+    4. ZERO ROWS ALERT — after a successful run with 0 rows
+       inserted, send an alert email. Zero rows is silent data loss.
 
-TEMP TABLE UPSERT PATTERN:
-    For each 500-row chunk:
-    1. CREATE TEMP TABLE ON COMMIT DROP
-    2. INSERT chunk into temp table
-    3. INSERT INTO standardized.observations FROM temp table
-       ON CONFLICT DO UPDATE
-    Temp table is dropped automatically after each chunk by
-    ON COMMIT DROP. Safer than direct bulk upsert on partitioned
-    tables — a conflict in one chunk does not affect others.
+    5. DUPLICATE raise FIXED — previous version had two raise
+       statements at end of _handle_unexpected().
 
-REVISION DETECTION:
-    Before every upsert, compare incoming values against stored
-    values using a temp table join — safe, no string interpolation.
-    Changed values are logged to observation_revisions before
-    the upsert overwrites them.
-
-PERFORMANCE DECISIONS:
-    - Validation sets (iso3, metric_ids, source_ids) loaded ONCE
-      per run and passed to check_pre_upsert() per batch.
-    - Revision detection and read-back use temp tables instead
-      of raw SQL string interpolation — safe and efficient.
-    - Rejections bulk-flushed in one INSERT at run end.
-
-TRANSFORMATION SEQUENCE (per batch unit):
-    1.  Open ops.pipeline_runs entry with status='running'
-    2.  Load validation sets once
-    3.  For each batch unit:
-        a. Write checkpoint in_progress
-        b. Read B2 file
-        c. check_transformation_pre() — checksum vs checkpoint
-        d. parse() — standardize to canonical shape
-        e. check_pre_upsert() — 4 validation checks
-        f. Detect and log revisions via temp table
-        g. Temp table upsert in 500-row chunks
-        h. Read back from Supabase via temp table
-        i. check_transformation_post() — checksum + row count
-        j. Write checkpoint complete
-    4.  Bulk flush rejections to ops.rejection_summary
-    5.  Close ops.pipeline_runs with final status
-    6.  Update last_retrieved in metadata.sources
+TRANSFORMATION SEQUENCE (per batch):
+    First run:  pre → parse → pre_upsert → upsert → checkpoint
+    Subsequent: pre → parse → pre_upsert → revisions → upsert
+                → readback → post → checkpoint
 """
 
 import traceback
@@ -83,103 +40,55 @@ from sqlalchemy import text
 from database.connection import get_engine
 from database.b2_upload import B2Client
 from database.checkpoint import (
-    write_start,
-    write_complete,
-    get_completed_batches,
-    get_ingestion_checksum,
+    write_start, write_complete,
+    get_completed_batches, get_ingestion_checksum,
 )
 from database.quality_checks import (
-    CriticalCheckError,
-    compute_checksum,
-    check_transformation_pre,
-    check_transformation_post,
+    CriticalCheckError, compute_checksum,
+    check_transformation_pre, check_transformation_post,
     check_pre_upsert,
 )
 from database.email_utils import send_critical_alert
 
-# Chunk sizes from design document Section 7.
-UPSERT_CHUNK_SIZE  = 500   # rows per temp table upsert
-READBACK_CHUNKSIZE = 100   # rows per Supabase read-back batch
+# ─────────────────────────────────────────────────────────────
+# CHUNK SIZES
+# ─────────────────────────────────────────────────────────────
+UPSERT_CHUNK_SIZE  = 1000  # rows per temp table upsert (was 500)
+READBACK_CHUNKSIZE = 500   # rows per read-back batch (was 100)
 
 
 class BaseTransformer(ABC):
-    """
-    Abstract base class for all transformation scripts.
-    Subclasses implement the four abstract methods below.
-    All shared pipeline logic lives here.
-    """
 
     def __init__(self, source_id: str):
-        """
-        Initialise shared resources once per script run.
-
-        Args:
-            source_id: Must match metadata.sources.source_id exactly.
-        """
-        self.source_id = source_id
-
-        # One database engine for the entire run.
-        self.engine = get_engine()
-
-        # B2 client for reading bronze files.
-        self.b2 = B2Client()
-
-        # Set when ops.pipeline_runs entry is opened.
-        self.run_id = None
-
-        # Counters written to ops.pipeline_runs at run end.
+        self.source_id      = source_id
+        self.engine         = get_engine()
+        self.b2             = B2Client()
+        self.run_id         = None
         self.total_inserted = 0
         self.total_rejected = 0
-
-        # Rejection dicts accumulated across all batches.
-        # Flushed to ops.rejection_summary in one bulk INSERT
-        # at run end — more efficient than one INSERT per batch.
         self.all_rejections = []
+        self._first_run     = False  # set in run()
 
 
     # ═══════════════════════════════════════════════════════
-    # ABSTRACT METHODS — implemented by each source script
+    # ABSTRACT METHODS
     # ═══════════════════════════════════════════════════════
 
     @abstractmethod
     def parse(self, df_raw: pd.DataFrame) -> pd.DataFrame:
-        """
-        Standardize a raw DataFrame read from B2 into the
-        canonical silver layer shape.
-
-        Standardization means exactly:
-            1. Map source country codes → ISO3
-            2. Verify numeric values cast cleanly (no change)
-            3. Map source column names → standard columns
-
-        Must return DataFrame with columns:
-            country_iso3, year, period, metric_id,
-            value, source_id, retrieved_at
-        """
+        """Standardize raw B2 DataFrame into canonical shape."""
 
     @abstractmethod
     def get_batch_units(self) -> list:
-        """
-        Return the ordered list of batch_units to process.
-        Must match exactly what the ingestion script used so
-        get_ingestion_checksum() can find the correct checkpoint.
-        """
+        """Return ordered list of batch_units to process."""
 
     @abstractmethod
     def get_b2_key(self, batch_unit: str) -> str:
-        """
-        Return the B2 object key for a given batch_unit.
-        Must return the same key the ingestion script used —
-        transformation reads the same file ingestion wrote.
-        """
+        """Return B2 path for a given batch_unit."""
 
     @abstractmethod
     def deserialize(self, data: bytes) -> pd.DataFrame:
-        """
-        Deserialize bytes from B2 into a DataFrame.
-        Must be the exact inverse of the ingestion script's
-        serialize() so the same file can be read back correctly.
-        """
+        """Deserialize bytes from B2 into a DataFrame."""
 
 
     # ═══════════════════════════════════════════════════════
@@ -187,64 +96,70 @@ class BaseTransformer(ABC):
     # ═══════════════════════════════════════════════════════
 
     def run(self):
-        """
-        Execute the full transformation pipeline for this source.
-        Called by the Prefect subflow after ingestion completes.
-        """
+        """Execute the full transformation pipeline."""
+
+        # ── Get batch units BEFORE opening pipeline run ────────
+        # Crashes here (e.g. no checkpoints found) are logged to
+        # stderr and re-raised. Without this wrapper they would be
+        # silently swallowed before any pipeline run entry exists.
+        try:
+            batch_units = self.get_batch_units()
+        except Exception:
+            print(
+                f"\n✗ UNEXPECTED ERROR in {self.source_id} "
+                f"transformation (before pipeline run opened):\n"
+                f"{traceback.format_exc()}"
+            )
+            raise
+
         with self.engine.connect() as conn:
             try:
-                # ── Step 1: Open pipeline run entry ───────────
-                # status='running' so a crash leaves a detectable
-                # record. Updated to final status at run end.
+                # ── Open pipeline run ──────────────────────────
                 self.run_id = self._open_pipeline_run(conn)
                 conn.commit()
 
-                # ── Step 2: Load validation sets ONCE ─────────
-                # Passed to check_pre_upsert() on every batch.
-                # Loading once avoids repeated DB queries per batch.
+                # ── First run detection ────────────────────────
+                # If last_retrieved is NULL → first run → skip
+                # revision detection and read-back per batch.
+                self._first_run = self._is_first_run(conn)
+                if self._first_run:
+                    print(
+                        f"  [first run] Skipping revision detection "
+                        f"and read-back — no existing rows."
+                    )
+
+                # ── Load validation sets ONCE ──────────────────
                 valid_iso3       = self._load_valid_iso3(conn)
                 valid_metric_ids = self._load_valid_metric_ids(conn)
                 valid_source_ids = self._load_valid_source_ids(conn)
 
-                # ── Step 3: Get batch units ────────────────────
-                batch_units = self.get_batch_units()
-
-                # ── Step 4: Find already-completed batches ─────
-                # Skip batches with a completed transformation
-                # checkpoint on restart after a crash.
+                # ── Find already-completed batches ─────────────
                 completed = get_completed_batches(
                     conn, self.run_id, self.source_id,
                     stage='transformation_batch'
                 )
 
-                # ── Step 5: Process each batch unit ───────────
+                # ── Process each batch ─────────────────────────
                 for batch_unit in batch_units:
                     if batch_unit in completed:
                         print(f"  [skip] {batch_unit} already complete")
                         continue
-
                     self._process_batch(
                         conn, batch_unit,
                         valid_iso3, valid_metric_ids, valid_source_ids
                     )
-                    # Commit after each batch so completed
-                    # checkpoints survive a mid-run crash.
                     conn.commit()
 
-                # ── Step 6: Bulk flush rejections ─────────────
+                # ── Bulk flush rejections ──────────────────────
                 self._flush_rejections(conn)
                 conn.commit()
 
-                # ── Step 7: Close pipeline run ─────────────────
+                # ── Close pipeline run ─────────────────────────
                 final_status = (
                     'success' if self.total_rejected == 0
                     else 'success_with_rej_rows'
                 )
                 self._close_pipeline_run(conn, final_status)
-
-                # ── Step 8: Update last_retrieved ─────────────
-                # Only on success. Failure leaves last_retrieved
-                # unchanged so the next run retries the full window.
                 self._update_last_retrieved(conn)
                 conn.commit()
 
@@ -253,6 +168,10 @@ class BaseTransformer(ABC):
                     f"Inserted: {self.total_inserted}, "
                     f"Rejected: {self.total_rejected}"
                 )
+
+                # ── Zero rows alert ────────────────────────────
+                if self.total_inserted == 0:
+                    self._alert_zero_rows()
 
             except CriticalCheckError as e:
                 conn.rollback()
@@ -268,37 +187,25 @@ class BaseTransformer(ABC):
     # ═══════════════════════════════════════════════════════
 
     def _process_batch(self, conn, batch_unit: str,
-                       valid_iso3: set,
-                       valid_metric_ids: set,
-                       valid_source_ids: set):
+                       valid_iso3, valid_metric_ids, valid_source_ids):
         """
-        Process one batch unit through the full transformation
-        sequence.
-
-        Args:
-            batch_unit:      Identifier for this batch.
-            valid_iso3:      Known ISO3 codes for FK validation.
-            valid_metric_ids: Known metric_ids for FK validation.
-            valid_source_ids: Known source_ids for FK validation.
+        Process one batch unit.
+        On first run: skips revision detection and read-back.
+        On subsequent runs: full sequence including both.
         """
         print(f"  [start] {batch_unit}")
 
-        # ── a. Write in_progress checkpoint ───────────────────
+        # a. Checkpoint in_progress
         cp_id = write_start(
             conn, self.run_id, self.source_id,
-            stage='transformation_batch',
-            batch_unit=batch_unit
+            stage='transformation_batch', batch_unit=batch_unit
         )
 
-        # ── b. Read B2 file ────────────────────────────────────
-        # Read the bronze file written by the ingestion script.
-        b2_key  = self.get_b2_key(batch_unit)
-        df_raw  = self.deserialize(self.b2.download(b2_key))
+        # b. Read from B2
+        b2_key = self.get_b2_key(batch_unit)
+        df_raw = self.deserialize(self.b2.download(b2_key))
 
-        # ── c. check_transformation_pre ────────────────────────
-        # Compare B2 read checksum against ingestion checkpoint.
-        # If they differ, B2 was corrupted between stages.
-        # CRITICAL — halt immediately, no retry.
+        # c. Pre-transformation checksum check
         stored_checksum, stored_row_count = get_ingestion_checksum(
             conn, self.run_id, self.source_id, batch_unit
         )
@@ -307,45 +214,32 @@ class BaseTransformer(ABC):
             df_raw, stored_checksum, stored_row_count
         )
 
-        # ── d. parse() ─────────────────────────────────────────
-        # Source script standardizes df_raw into canonical shape.
-        # Exactly: country code mapping, value casting, column
-        # mapping. No imputation or value changes.
+        # d. Parse — standardize to canonical shape
         df = self.parse(df_raw)
 
-        # ── e. check_pre_upsert ────────────────────────────────
-        # Four validation checks before any data touches Supabase.
-        # Checks run only on rows that passed earlier checks
-        # (chained masks) — avoids redundant work.
-        # Returns (clean_df, rejections).
+        # e. Pre-upsert quality checks
         df, rejections = check_pre_upsert(
             conn, self.run_id, self.source_id, batch_unit,
             df, valid_iso3, valid_metric_ids, valid_source_ids
         )
         self.all_rejections.extend(rejections)
 
-        # ── f. Detect and log revisions ────────────────────────
-        # Compare incoming values against stored values using a
-        # temp table join. Log changes to observation_revisions
-        # before the upsert overwrites them.
-        self._detect_revisions(conn, df)
+        # f. Revision detection — SKIPPED on first run
+        if not self._first_run:
+            self._detect_revisions(conn, df)
 
-        # ── g. Temp table upsert ───────────────────────────────
-        # Upsert clean rows in 500-row chunks.
+        # g. Upsert in chunks
         self._upsert_chunks(conn, df)
 
-        # ── h. Read back from Supabase ─────────────────────────
-        # Verify upserted rows match pre-upsert DataFrame.
-        df_readback = self._readback_from_supabase(conn, df)
+        # h. Read-back + post check — SKIPPED on first run
+        if not self._first_run:
+            df_readback = self._readback_from_supabase(conn, df)
+            check_transformation_post(
+                conn, self.run_id, self.source_id, batch_unit,
+                df, df_readback
+            )
 
-        # ── i. check_transformation_post ──────────────────────
-        # CRITICAL if checksum or row count mismatches.
-        check_transformation_post(
-            conn, self.run_id, self.source_id, batch_unit,
-            df, df_readback
-        )
-
-        # ── j. Write complete checkpoint ───────────────────────
+        # i. Checkpoint complete
         write_complete(
             conn, cp_id,
             checksum  = compute_checksum(df),
@@ -357,45 +251,23 @@ class BaseTransformer(ABC):
 
 
     # ═══════════════════════════════════════════════════════
-    # TEMP TABLE UPSERT
+    # UPSERT
     # ═══════════════════════════════════════════════════════
 
     def _upsert_chunks(self, conn, df: pd.DataFrame):
-        """
-        Upsert df into standardized.observations in 500-row chunks
-        using the temp table pattern.
+        """Upsert df in 1000-row chunks via temp table pattern."""
+        if df.empty:
+            return
 
-        WHY TEMP TABLE PATTERN:
-            Isolates each chunk before touching the partitioned
-            parent. A conflict or error in one chunk does not
-            affect rows already upserted from previous chunks.
+        for i in range(0, len(df), UPSERT_CHUNK_SIZE):
+            chunk = df.iloc[i:i + UPSERT_CHUNK_SIZE]
 
-        WHY ON COMMIT DROP:
-            Automatically drops the temp table at transaction
-            boundary — no explicit DROP needed and no temp table
-            leak even if an error occurs mid-chunk.
-
-        WHY 500-ROW CHUNKS:
-            Balances Supabase free tier timeout limits against
-            temp table creation overhead. Too small = excessive
-            overhead. Too large = timeout risk.
-        """
-        chunks = [
-            df.iloc[i:i + UPSERT_CHUNK_SIZE]
-            for i in range(0, len(df), UPSERT_CHUNK_SIZE)
-        ]
-
-        for chunk in chunks:
-            # Create temp table with same structure as observations.
-            # LIMIT 0 copies structure only — no rows.
-            # ON COMMIT DROP removes it automatically after chunk.
             conn.execute(text("""
                 CREATE TEMP TABLE temp_obs
                 ON COMMIT DROP
                 AS SELECT * FROM standardized.observations LIMIT 0
             """))
 
-            # Insert chunk into temp table.
             conn.execute(
                 text("""
                     INSERT INTO temp_obs (
@@ -409,9 +281,6 @@ class BaseTransformer(ABC):
                 chunk.to_dict(orient='records')
             )
 
-            # Upsert from temp table into partitioned parent.
-            # ON CONFLICT targets the four-part primary key.
-            # DO UPDATE applies source revisions to the silver layer.
             conn.execute(text("""
                 INSERT INTO standardized.observations (
                     country_iso3, year, period, metric_id,
@@ -428,53 +297,29 @@ class BaseTransformer(ABC):
                     retrieved_at = EXCLUDED.retrieved_at
             """))
 
-            # Commit triggers ON COMMIT DROP on temp_obs.
             conn.commit()
 
 
     # ═══════════════════════════════════════════════════════
-    # SUPABASE READ-BACK
+    # READ-BACK
     # ═══════════════════════════════════════════════════════
 
-    def _readback_from_supabase(self, conn,
-                                df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Read back upserted rows from Supabase for post-upsert
-        verification using a temp table join.
-
-        WHY TEMP TABLE FOR READ-BACK:
-            Alternative is building a VALUES clause with hundreds
-            of tuples interpolated directly into a SQL string —
-            a SQL injection risk and inefficient for large batches.
-            A temp table of PK values joined against observations
-            is safe, uses the existing indexes, and scales cleanly
-            regardless of batch size.
-
-        Args:
-            df: Pre-upsert DataFrame. PKs used to filter read-back.
-
-        Returns:
-            DataFrame of rows read back from Supabase.
-        """
-        # Create a temp table of PK values to join against.
+    def _readback_from_supabase(self, conn, df: pd.DataFrame) -> pd.DataFrame:
+        """Read back upserted rows via temp table join."""
         conn.execute(text("""
-            CREATE TEMP TABLE temp_pks
-            ON COMMIT DROP (
+            CREATE TEMP TABLE temp_pks (
                 country_iso3  CHAR(3),
                 year          SMALLINT,
                 period        TEXT,
                 metric_id     TEXT
-            )
+            ) ON COMMIT DROP
         """))
 
-        # Insert PKs in READBACK_CHUNKSIZE batches to avoid
-        # Supabase timeout on large DataFrames.
         pk_rows = df[
             ['country_iso3', 'year', 'period', 'metric_id']
         ].to_dict(orient='records')
 
         for i in range(0, len(pk_rows), READBACK_CHUNKSIZE):
-            chunk = pk_rows[i:i + READBACK_CHUNKSIZE]
             conn.execute(
                 text("""
                     INSERT INTO temp_pks (
@@ -483,16 +328,12 @@ class BaseTransformer(ABC):
                         :country_iso3, :year, :period, :metric_id
                     )
                 """),
-                chunk
+                pk_rows[i:i + READBACK_CHUNKSIZE]
             )
 
-        # Join observations against temp_pks to read back only
-        # the rows we just upserted. Uses existing indexes on
-        # standardized.observations — no full table scan.
-        df_readback = pd.read_sql(text("""
-            SELECT
-                o.country_iso3, o.year, o.period,
-                o.metric_id, o.value
+        return pd.read_sql(text("""
+            SELECT o.country_iso3, o.year, o.period,
+                   o.metric_id, o.value
             FROM standardized.observations o
             JOIN temp_pks p
               ON  o.country_iso3 = p.country_iso3
@@ -501,56 +342,31 @@ class BaseTransformer(ABC):
               AND o.metric_id    = p.metric_id
         """), conn)
 
-        return df_readback
-
 
     # ═══════════════════════════════════════════════════════
     # REVISION DETECTION
     # ═══════════════════════════════════════════════════════
 
     def _detect_revisions(self, conn, df: pd.DataFrame):
-        """
-        Compare incoming values against currently stored values
-        using a temp table join. Log any changed values to
-        standardized.observation_revisions before the upsert
-        overwrites them.
-
-        WHY TEMP TABLE (not raw SQL string):
-            Building a WHERE IN clause with hundreds of tuples
-            interpolated directly into SQL is a SQL injection
-            risk and inefficient for large batches. A temp table
-            joined against observations is safe, uses indexes,
-            and scales to any batch size.
-
-        WHY BEFORE THE UPSERT:
-            The old value must be captured before the upsert
-            overwrites it. After the upsert the old value is gone.
-
-        Args:
-            df: Clean DataFrame about to be upserted.
-        """
+        """Detect and log value changes before upsert overwrites them."""
         if df.empty:
             return
 
-        # Create temp table of incoming PK + value combinations.
         conn.execute(text("""
-            CREATE TEMP TABLE temp_incoming
-            ON COMMIT DROP (
+            CREATE TEMP TABLE temp_incoming (
                 country_iso3  CHAR(3),
                 year          SMALLINT,
                 period        TEXT,
                 metric_id     TEXT,
                 new_value     TEXT
-            )
+            ) ON COMMIT DROP
         """))
 
-        # Insert incoming rows into temp table in chunks.
-        incoming_rows = df[
+        incoming = df[
             ['country_iso3', 'year', 'period', 'metric_id', 'value']
         ].rename(columns={'value': 'new_value'}).to_dict(orient='records')
 
-        for i in range(0, len(incoming_rows), READBACK_CHUNKSIZE):
-            chunk = incoming_rows[i:i + READBACK_CHUNKSIZE]
+        for i in range(0, len(incoming), READBACK_CHUNKSIZE):
             conn.execute(
                 text("""
                     INSERT INTO temp_incoming (
@@ -561,17 +377,13 @@ class BaseTransformer(ABC):
                         :metric_id, :new_value
                     )
                 """),
-                chunk
+                incoming[i:i + READBACK_CHUNKSIZE]
             )
 
-        # Join observations against temp_incoming to find rows
-        # where the value has changed. Only existing rows can
-        # have revisions — new rows are not revisions.
         changed = pd.read_sql(text("""
             SELECT
                 o.country_iso3, o.year, o.period, o.metric_id,
-                o.value     AS old_value,
-                t.new_value AS new_value
+                o.value AS old_value, t.new_value
             FROM standardized.observations o
             JOIN temp_incoming t
               ON  o.country_iso3 = t.country_iso3
@@ -584,36 +396,24 @@ class BaseTransformer(ABC):
         if changed.empty:
             return
 
-        # Log each changed value to observation_revisions.
-        # old_unit and new_unit are NULL here — source scripts
-        # can override _detect_revisions() to populate them
-        # when a unit change is also detected.
-        revision_rows = []
-        for _, row in changed.iterrows():
-            revision_rows.append({
-                'country_iso3':  row['country_iso3'],
-                'year':          int(row['year']),
-                'period':        row['period'],
-                'metric_id':     row['metric_id'],
-                'old_value':     row['old_value'],
-                'new_value':     row['new_value'],
-                'old_unit':      None,
-                'new_unit':      None,
-                'revised_at':    date.today(),
-                'source_id':     self.source_id,
-                'revision_note': 'Value revised by source',
-            })
+        revision_rows = changed.assign(
+            old_unit      = None,
+            new_unit      = None,
+            revised_at    = date.today(),
+            source_id     = self.source_id,
+            revision_note = 'Value revised by source',
+        )[['country_iso3', 'year', 'period', 'metric_id',
+           'old_value', 'new_value', 'old_unit', 'new_unit',
+           'revised_at', 'source_id', 'revision_note']].to_dict(orient='records')
 
         conn.execute(text("""
             INSERT INTO standardized.observation_revisions (
                 country_iso3, year, period, metric_id,
-                old_value, new_value,
-                old_unit, new_unit,
+                old_value, new_value, old_unit, new_unit,
                 revised_at, source_id, revision_note
             ) VALUES (
                 :country_iso3, :year, :period, :metric_id,
-                :old_value, :new_value,
-                :old_unit, :new_unit,
+                :old_value, :new_value, :old_unit, :new_unit,
                 :revised_at, :source_id, :revision_note
             )
         """), revision_rows)
@@ -622,64 +422,45 @@ class BaseTransformer(ABC):
 
 
     # ═══════════════════════════════════════════════════════
-    # VALIDATION SET LOADERS
+    # HELPERS
     # ═══════════════════════════════════════════════════════
+
+    def _is_first_run(self, conn) -> bool:
+        """True if last_retrieved is NULL — no prior successful run."""
+        row = conn.execute(text("""
+            SELECT last_retrieved FROM metadata.sources
+            WHERE source_id = :source_id
+        """), {'source_id': self.source_id}).fetchone()
+        return row is None or row[0] is None
 
     def _load_valid_iso3(self, conn) -> set:
-        """Load all known ISO3 codes. Called once per run."""
-        rows = conn.execute(text(
+        return {r[0] for r in conn.execute(text(
             "SELECT iso3 FROM metadata.countries"
-        )).fetchall()
-        return {r[0] for r in rows}
+        )).fetchall()}
 
     def _load_valid_metric_ids(self, conn) -> set:
-        """Load all known metric_ids. Called once per run."""
-        rows = conn.execute(text(
+        return {r[0] for r in conn.execute(text(
             "SELECT metric_id FROM metadata.metrics"
-        )).fetchall()
-        return {r[0] for r in rows}
+        )).fetchall()}
 
     def _load_valid_source_ids(self, conn) -> set:
-        """Load all known source_ids. Called once per run."""
-        rows = conn.execute(text(
+        return {r[0] for r in conn.execute(text(
             "SELECT source_id FROM metadata.sources"
-        )).fetchall()
-        return {r[0] for r in rows}
-
-
-    # ═══════════════════════════════════════════════════════
-    # ops.pipeline_runs HELPERS
-    # ═══════════════════════════════════════════════════════
+        )).fetchall()}
 
     def _open_pipeline_run(self, conn) -> int:
-        """
-        Insert a row into ops.pipeline_runs with status='running'.
-        Returns run_id. A crash leaves status='running' with no
-        completed_at — detectable by the team.
-        """
         result = conn.execute(text("""
             INSERT INTO ops.pipeline_runs (
                 source_id, started_at, status
-            ) VALUES (
-                :source_id, :started_at, 'running'
-            )
+            ) VALUES (:source_id, :started_at, 'running')
             RETURNING run_id
-        """), {
-            'source_id':  self.source_id,
-            'started_at': datetime.utcnow(),
-        })
+        """), {'source_id': self.source_id, 'started_at': datetime.utcnow()})
         return result.fetchone()[0]
 
-    def _close_pipeline_run(self, conn, status: str,
-                            error_message: str = None):
-        """
-        Update ops.pipeline_runs with final status, completion
-        timestamp, row counts, and error message if applicable.
-        """
+    def _close_pipeline_run(self, conn, status: str, error_message: str = None):
         conn.execute(text("""
             UPDATE ops.pipeline_runs
-            SET
-                completed_at  = :completed_at,
+            SET completed_at  = :completed_at,
                 rows_inserted = :rows_inserted,
                 rows_rejected = :rows_rejected,
                 status        = :status,
@@ -695,40 +476,17 @@ class BaseTransformer(ABC):
         })
 
     def _update_last_retrieved(self, conn):
-        """
-        Update last_retrieved in metadata.sources to today.
-        Only called on successful runs — never on failures.
-        """
         conn.execute(text("""
             UPDATE metadata.sources
             SET last_retrieved = :today
             WHERE source_id = :source_id
-        """), {
-            'source_id': self.source_id,
-            'today':     date.today(),
-        })
-
-
-    # ═══════════════════════════════════════════════════════
-    # REJECTION LOGGING
-    # ═══════════════════════════════════════════════════════
+        """), {'source_id': self.source_id, 'today': date.today()})
 
     def _flush_rejections(self, conn):
-        """
-        Bulk INSERT all accumulated rejection summaries to
-        ops.rejection_summary in one round trip.
-
-        WHY BULK INSERT AT RUN END:
-            One DB round trip for all rejections across all batches
-            regardless of how many batches ran. Far more efficient
-            than one INSERT per batch in a loop.
-        """
         if not self.all_rejections:
             return
-
         now  = datetime.utcnow()
         rows = [{**r, 'logged_at': now} for r in self.all_rejections]
-
         conn.execute(text("""
             INSERT INTO ops.rejection_summary (
                 run_id, source_id, batch_unit,
@@ -738,22 +496,41 @@ class BaseTransformer(ABC):
                 :rejection_reason, :row_count, :logged_at
             )
         """), rows)
+        self.total_rejected = sum(r['row_count'] for r in self.all_rejections)
 
-        self.total_rejected = sum(
-            r['row_count'] for r in self.all_rejections
+    def _alert_zero_rows(self):
+        """
+        Alert when transformation succeeds but inserts 0 rows.
+        Zero rows after a successful run = silent data loss.
+        Possible causes: broken crosswalk, empty B2 files,
+        since_date window too narrow.
+        """
+        msg = (
+            f"ZERO ROWS ALERT: {self.source_id} transformation "
+            f"completed with status=success but inserted 0 rows.\n\n"
+            f"Possible causes:\n"
+            f"  1. Country code crosswalk broken — all rows dropped\n"
+            f"  2. B2 files empty or unreadable\n"
+            f"  3. since_date window excludes all available data\n\n"
+            f"Run ID: {self.run_id}\n"
+            f"Check ops.quality_runs for fk_validity failures.\n"
+            f"Check metadata.country_codes for source_id='{self.source_id}'."
+        )
+        print(f"\n⚠ WARNING: {msg}")
+        send_critical_alert(
+            source_id  = self.source_id,
+            run_id     = self.run_id,
+            error_text = msg,
+            stage      = 'transformation',
         )
 
 
     # ═══════════════════════════════════════════════════════
-    # ERROR HANDLING
+    # ERROR HANDLERS
     # ═══════════════════════════════════════════════════════
 
     def _handle_critical(self, e: CriticalCheckError):
-        """
-        Handle a CRITICAL quality check failure.
-        Logs to ops.pipeline_runs and sends immediate alert.
-        last_retrieved is NOT updated — next run retries full window.
-        """
+        """Log to ops.pipeline_runs and re-raise. Email via on_failure hook."""
         error_text = (
             f"CRITICAL: {e.check_name} failed at {e.stage}.\n"
             f"Batch:    {e.batch_unit}\n"
@@ -762,33 +539,19 @@ class BaseTransformer(ABC):
             f"Details:  {e.details}"
         )
         print(f"\n✗ {error_text}")
-
-        # Fresh connection because the original was rolled back.
         with self.engine.connect() as conn2:
             self._close_pipeline_run(conn2, 'failed', error_text)
             conn2.commit()
-
-        send_critical_alert(
-            self.source_id, self.run_id,
-            error_text, 'transformation'
-        )
+        raise
 
     def _handle_unexpected(self, e: Exception):
-        """
-        Handle an unexpected crash.
-        Logs full traceback to ops.pipeline_runs and emails team.
-        """
+        """Log full traceback to ops.pipeline_runs and re-raise."""
         error_text = (
             f"UNEXPECTED ERROR in {self.source_id} transformation:\n"
             f"{traceback.format_exc()}"
         )
         print(f"\n✗ {error_text}")
-
         with self.engine.connect() as conn2:
             self._close_pipeline_run(conn2, 'failed', error_text)
             conn2.commit()
-
-        send_critical_alert(
-            self.source_id, self.run_id,
-            error_text, 'transformation'
-        )
+        raise

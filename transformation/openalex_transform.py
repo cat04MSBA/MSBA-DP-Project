@@ -211,7 +211,7 @@ class OpenAlexTransformer(BaseTransformer):
 
     def deserialize(self, data: bytes) -> pd.DataFrame:
         """Deserialize JSON bytes from B2. Inverse of serialize()."""
-        return pd.read_json(BytesIO(data), orient='records')
+        return pd.read_json(BytesIO(data), orient='records', convert_dates=False, dtype=False)
 
 
     # ═══════════════════════════════════════════════════════

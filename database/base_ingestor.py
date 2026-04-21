@@ -675,8 +675,15 @@ class BaseIngestor(ABC):
     def _handle_critical(self, e: CriticalCheckError):
         """
         Handle a CRITICAL quality check failure.
-        Logs to ops.pipeline_runs and sends immediate alert.
+        Logs to ops.pipeline_runs and re-raises for Prefect.
         last_retrieved is NOT updated — next run retries full window.
+
+        WHY NO EMAIL HERE:
+            Email is sent by the Prefect task's on_failure hook,
+            which fires only after all retries are exhausted.
+            Sending email here would fire on every retry attempt
+            — up to 3 emails for the same failure. The on_failure
+            hook sends exactly one email after the final retry.
         """
         error_text = (
             f"CRITICAL: {e.check_name} failed at {e.stage}.\n"
@@ -687,20 +694,23 @@ class BaseIngestor(ABC):
         )
         print(f"\n✗ {error_text}")
 
-        # Fresh connection because the original was rolled back.
         with self.engine.connect() as conn2:
             self._close_pipeline_run(conn2, 'failed', error_text)
             conn2.commit()
 
-        send_critical_alert(
-            self.source_id, self.run_id,
-            error_text, 'ingestion'
-        )
+        # Re-raise so Prefect marks task as Failed and triggers
+        # retry logic. on_failure hook sends email after final retry.
+        raise
 
     def _handle_unexpected(self, e: Exception):
         """
         Handle an unexpected crash.
-        Logs full traceback to ops.pipeline_runs and emails team.
+        Logs full traceback to ops.pipeline_runs and re-raises.
+
+        WHY NO EMAIL HERE:
+            Same as _handle_critical — email belongs in the
+            Prefect on_failure hook which fires only after all
+            retries are exhausted, not on every attempt.
         """
         error_text = (
             f"UNEXPECTED ERROR in {self.source_id} ingestion:\n"
@@ -712,7 +722,5 @@ class BaseIngestor(ABC):
             self._close_pipeline_run(conn2, 'failed', error_text)
             conn2.commit()
 
-        send_critical_alert(
-            self.source_id, self.run_id,
-            error_text, 'ingestion'
-        )
+        # Re-raise so Prefect marks the task as Failed.
+        raise

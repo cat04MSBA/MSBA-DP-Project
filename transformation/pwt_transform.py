@@ -100,7 +100,7 @@ class PWTTransformer(BaseTransformer):
 
 
     def deserialize(self, data: bytes) -> pd.DataFrame:
-        return pd.read_json(BytesIO(data), orient='records')
+        return pd.read_json(BytesIO(data), orient='records', convert_dates=False, dtype=False)
 
 
     def _get_since_year(self) -> int:

@@ -244,7 +244,7 @@ class IMFTransformer(BaseTransformer):
         Deserialize JSON bytes from B2 into a DataFrame.
         Exact inverse of imf_ingest.py serialize().
         """
-        return pd.read_json(BytesIO(data), orient='records')
+        return pd.read_json(BytesIO(data), orient='records', convert_dates=False, dtype=False)
 
 
     # ═══════════════════════════════════════════════════════

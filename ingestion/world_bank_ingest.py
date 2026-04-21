@@ -120,6 +120,37 @@ RETRY_DELAYS = [60, 300, 600]  # 1 min, 5 min, 10 min
 # log — we cannot split smaller than one year.
 MIN_CHUNK_YEARS = 1
 
+# Education indicator allowlist — exactly the 41 featured indicators
+# from the World Bank Education topic page (worldbank.org/en/topic/education).
+# Topic 4 returns thousands of indicators across all WB databases.
+# This allowlist restricts new indicator detection to the same 41
+# indicators we registered at seeding time — prevents emails for
+# every unregistered education indicator in the full topic 4 list.
+# Must match EDUCATION_ALLOWLIST in seed_metrics.py and
+# seed_metric_codes.py exactly.
+EDUCATION_ALLOWLIST = {
+    'SE.PRM.UNER.FE', 'SE.PRM.UNER.MA',
+    'SE.XPD.TOTL.GD.ZS', 'SE.XPD.TOTL.GB.ZS',
+    'SE.XPD.PRIM.PC.ZS', 'SE.XPD.SECO.PC.ZS', 'SE.XPD.TERT.PC.ZS',
+    'SE.PRM.GINT.FE.ZS', 'SE.PRM.GINT.MA.ZS',
+    'SL.TLF.TOTL.FE.ZS', 'SL.TLF.TOTL.IN',
+    'SE.ADT.LITR.FE.ZS', 'SE.ADT.LITR.MA.ZS', 'SE.ADT.LITR.ZS',
+    'SE.ADT.1524.LT.FE.ZS', 'SE.ADT.1524.LT.MA.ZS', 'SE.ADT.1524.LT.ZS',
+    'SE.PRM.PRSL.FE.ZS', 'SE.PRM.PRSL.MA.ZS',
+    'SP.POP.0014.TO.ZS', 'SP.POP.1564.TO.ZS',
+    'SE.PRM.CMPT.FE.ZS', 'SE.PRM.CMPT.MA.ZS', 'SE.PRM.CMPT.ZS',
+    'SE.SEC.PROG.FE.ZS', 'SE.SEC.PROG.MA.ZS',
+    'SE.PRM.ENRL.TC.ZS',
+    'SE.PRM.REPT.FE.ZS', 'SE.PRM.REPT.MA.ZS',
+    'SE.PRE.ENRR',
+    'SE.PRM.ENRR', 'SE.PRM.NENR',
+    'SE.ENR.PRIM.FM.ZS', 'SE.ENR.PRSC.FM.ZS',
+    'SE.SEC.ENRR', 'SE.SEC.NENR',
+    'SE.TER.ENRR',
+    'SE.PRM.TCAQ.ZS',
+    'SL.UEM.TOTL.FE.ZS', 'SL.UEM.TOTL.MA.ZS', 'SL.UEM.TOTL.ZS',
+}
+
 
 class WorldBankIngestor(BaseIngestor):
     """
@@ -282,70 +313,43 @@ class WorldBankIngestor(BaseIngestor):
                              year_end: int) -> tuple:
         """
         Try to fetch indicator data for the given year range.
-        Retries 3 times on failure then splits the year range
+        Retries 3 times with backoff then splits the year range
         in half and tries each half independently.
-
-        Args:
-            indicator:  World Bank indicator code.
-            year_start: First year to pull (inclusive).
-            year_end:   Last year to pull (inclusive).
-
-        Returns:
-            (raw_row_count, df) combined across all successful
-            chunks if splitting occurred.
-
-        Raises:
-            RuntimeError: if a single year fails after 3 retries
-                          (cannot split further).
         """
-        # ── Try full range with retries ────────────────────────
-        for attempt, delay in enumerate(RETRY_DELAYS, 1):
-            try:
-                return self._fetch_indicator(
-                    indicator, year_start, year_end
-                )
-            except Exception as e:
-                if attempt == len(RETRY_DELAYS):
-                    # All retries exhausted — decide whether to
-                    # split or give up.
-                    break
-                print(
-                    f"    [retry {attempt}] {indicator} "
-                    f"{year_start}-{year_end}: {e}. "
-                    f"Waiting {delay}s..."
-                )
-                time.sleep(delay)
+        last_error = None
 
-        # ── Retries exhausted ──────────────────────────────────
+        for attempt in range(1, len(RETRY_DELAYS) + 1):
+            try:
+                return self._fetch_indicator(indicator, year_start, year_end)
+            except Exception as e:
+                last_error = e
+                if attempt < len(RETRY_DELAYS):
+                    delay = RETRY_DELAYS[attempt - 1]
+                    print(
+                        f"    [retry {attempt}] {indicator} "
+                        f"{year_start}-{year_end}: {e}. "
+                        f"Waiting {delay}s..."
+                    )
+                    time.sleep(delay)
+
+        # All retries exhausted — split or give up.
         chunk_size = year_end - year_start + 1
 
         if chunk_size <= MIN_CHUNK_YEARS:
-            # Cannot split further — single year still failing.
-            # Raise so the caller logs this as a rejection.
             raise RuntimeError(
                 f"Single year {year_start} for {indicator} "
-                f"failed after {len(RETRY_DELAYS)} retries. "
-                f"Cannot split further."
+                f"failed after {len(RETRY_DELAYS)} retries: {last_error}"
             )
 
-        # ── Split year range in half ───────────────────────────
-        # Splitting reduces request size which handles genuine
-        # large-response failures (not just transient errors).
         mid = (year_start + year_end) // 2
         print(
             f"    [split] {indicator} {year_start}-{year_end} → "
             f"{year_start}-{mid} + {mid+1}-{year_end}"
         )
 
-        # Fetch each half independently with its own retry cycle.
-        count1, df1 = self._fetch_with_chunking(
-            indicator, year_start, mid
-        )
-        count2, df2 = self._fetch_with_chunking(
-            indicator, mid + 1, year_end
-        )
+        count1, df1 = self._fetch_with_chunking(indicator, year_start, mid)
+        count2, df2 = self._fetch_with_chunking(indicator, mid + 1, year_end)
 
-        # Combine both halves into one result.
         combined_df    = pd.concat([df1, df2], ignore_index=True)
         combined_count = count1 + count2
 
@@ -391,23 +395,47 @@ class WorldBankIngestor(BaseIngestor):
         data = response.json()
 
         # Validate response structure.
-        # The API returns a list of two elements.
-        # Element 0: pagination metadata dict.
-        # Element 1: list of observation dicts (may be None if
-        # no data exists for this indicator + date range).
-        if not isinstance(data, list) or len(data) < 2:
+        # The API returns a list of two elements:
+        #   [0] pagination metadata dict
+        #   [1] list of observations, or None if no data exists
+        #
+        # BUT the API also returns error responses as a 1-element list:
+        #   [{'message': [{'id': '120', 'key': 'Parameter errors', ...}]}]
+        # These indicate deprecated indicators, invalid codes, or
+        # parameter errors. Treat as empty data — do not retry.
+        #
+        # Only raise ValueError if the structure is completely
+        # unrecognisable (not a list at all).
+        if not isinstance(data, list):
             raise ValueError(
-                f"Unexpected API response structure for {indicator}"
+                f"Non-list API response for {indicator}: {type(data)}"
             )
 
-        metadata    = data[0]
-        records     = data[1] or []
-        total_pages = metadata.get('pages', 1)
+        # 1-element list = API error response (deprecated indicator etc.)
+        # Return empty DataFrame — no data for this indicator.
+        if len(data) < 2:
+            print(
+                f"    [no data] {indicator}: API returned "
+                f"error/empty response — skipping."
+            )
+            empty_df = pd.DataFrame(columns=[
+                'country_iso3', 'year', 'period', 'metric_id',
+                'value', 'source_id', 'retrieved_at'
+            ])
+            return 0, empty_df
 
-        # raw_row_count is the total records across ALL pages
-        # as reported by the API. Used by check_ingestion_pre()
-        # to verify no rows were dropped during parsing.
-        raw_row_count = metadata.get('total', len(records))
+        metadata = data[0]
+        records  = data[1] or []  # None → empty list (no data)
+
+        # If metadata is not a dict something is genuinely wrong —
+        # raise to trigger retry.
+        if not isinstance(metadata, dict):
+            raise ValueError(
+                f"Unexpected metadata structure for {indicator}: "
+                f"expected dict, got {type(metadata)}"
+            )
+
+        total_pages = metadata.get('pages', 1)
 
         # ── Collect remaining pages ────────────────────────────
         # Page 1 already collected above. Loop from page 2.
@@ -422,6 +450,15 @@ class WorldBankIngestor(BaseIngestor):
 
         # ── Parse records into DataFrame ───────────────────────
         df = self._parse_records(records, indicator)
+
+        # raw_row_count is the count AFTER null-dropping — the
+        # number of rows we actually intend to store. The API's
+        # metadata.total includes NULL rows which _parse_records()
+        # drops (absence of data = no row). Using the API total
+        # would cause check_ingestion_pre() to fail because it
+        # would compare the API total (including NULLs) against
+        # the parsed count (excluding NULLs).
+        raw_row_count = len(df)
 
         return raw_row_count, df
 
@@ -486,7 +523,7 @@ class WorldBankIngestor(BaseIngestor):
                 'metric_id':    metric_id,
                 'value':        str(rec['value']),
                 'source_id':    'world_bank',
-                'retrieved_at': date.today(),
+                'retrieved_at': date.today().isoformat(),
             })
 
         return pd.DataFrame(rows) if rows else pd.DataFrame(
@@ -621,13 +658,26 @@ class WorldBankIngestor(BaseIngestor):
         Deserialize JSON bytes from B2 back into a DataFrame.
         Exact inverse of serialize().
 
-        Args:
-            data: Raw bytes read from B2.
+        WHY convert_dates=False:
+            pd.read_json() auto-detects date-like strings and
+            converts them to int64 timestamps (milliseconds since
+            epoch). This means 'retrieved_at' comes back as
+            1745193600000 instead of '2026-04-21', breaking the
+            checksum comparison between df_before and df_after.
+            convert_dates=False preserves all values as-is,
+            matching the original DataFrame exactly.
 
-        Returns:
-            DataFrame with the same columns as the original.
+        WHY dtype=False:
+            Prevents pandas from inferring types differently on
+            read-back vs the original DataFrame. Keeps all values
+            as strings/numbers matching what serialize() wrote.
         """
-        return pd.read_json(BytesIO(data), orient='records')
+        return pd.read_json(
+            BytesIO(data),
+            orient        = 'records',
+            convert_dates = False,
+            dtype         = False,
+        )
 
 
     # ═══════════════════════════════════════════════════════
@@ -670,6 +720,13 @@ class WorldBankIngestor(BaseIngestor):
                     for ind in data[1]:
                         code = ind.get('id')
                         if code:
+                            # Education topic (4) returns thousands of
+                            # indicators across all WB databases.
+                            # Apply the same allowlist used at seeding
+                            # time so new indicator detection only flags
+                            # indicators we actually care about.
+                            if topic_id == 4 and code not in EDUCATION_ALLOWLIST:
+                                continue
                             api_codes.add(code)
 
                     total_pages = data[0].get('pages', 1)

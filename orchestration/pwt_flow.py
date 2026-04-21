@@ -1,78 +1,64 @@
 """
 orchestration/pwt_flow.py
-=========================
-Prefect flow for Penn World Tables ingestion and transformation.
-
-Same pattern as oxford_flow.py — triggered by upload_to_b2.py
-when a team member uploads a new PWT .dta file to B2.
-
-PWT-SPECIFIC:
-    PWT releases every few years (PWT 10.0 in 2021, PWT 11.0
-    in 2024). The team downloads the new .dta file from
-    rug.nl/ggdc/productivity/pwt/ when a new version is published.
-
-    Largest source by row count — up to 640,000 observations
-    (185 countries × 74 years × 47 metrics before NaN dropping).
-    Timeout set to 2 hours to handle the full first-time load.
-    Subsequent runs after a new PWT version are also full reloads
-    since PWT revises historical values significantly between
-    major releases.
+=============================
+Prefect flow for pwt ingestion and transformation.
+on_failure hook sends email only after all retries exhausted.
 """
 
 from prefect import flow, task, get_run_logger
-
 from ingestion.pwt_ingest import PWTIngestor
 from transformation.pwt_transform import PWTTransformer
+from database.email_utils import send_critical_alert
+
+
+def on_task_failure(task, task_run, state):
+    """Called by Prefect only after ALL retries are exhausted."""
+    error = state.result(raise_on_failure=False)
+    send_critical_alert(
+        source_id  = 'pwt',
+        run_id     = None,
+        error_text = (
+            f"Task '{task.name}' failed after all retries.\n"
+            f"Flow: pwt-flow\n"
+            f"Error: {error}\n\n"
+            f"Check ops.pipeline_runs for full details."
+        ),
+        stage = 'pipeline',
+    )
 
 
 @task(
     name                = "pwt-ingestion",
     retries             = 3,
     retry_delay_seconds = [60, 300, 600],
+    on_failure          = [on_task_failure],
 )
 def pwt_ingest_task():
-    """
-    Run PWT ingestion.
-    Reads .dta from B2, melts 47 variables wide→tall,
-    filters by since_date, saves tall JSON to B2.
-    """
     logger = get_run_logger()
-    logger.info("Starting PWT ingestion")
+    logger.info("Starting pwt ingestion")
     PWTIngestor().run()
-    logger.info("PWT ingestion complete")
+    logger.info("pwt ingestion complete")
 
 
 @task(
     name                = "pwt-transformation",
     retries             = 3,
     retry_delay_seconds = [60, 300, 600],
+    on_failure          = [on_task_failure],
 )
 def pwt_transform_task():
-    """
-    Run PWT transformation.
-    Reads tall JSON from B2, validates, casts values, upserts.
-    PWT uses ISO3 directly — no country code mapping needed.
-    """
     logger = get_run_logger()
-    logger.info("Starting PWT transformation")
+    logger.info("Starting pwt transformation")
     PWTTransformer().run()
-    logger.info("PWT transformation complete")
+    logger.info("pwt transformation complete")
 
 
 @flow(
     name            = "pwt-flow",
-    description     = (
-        "Ingestion and transformation for Penn World Tables 11.0. "
-        "Triggered manually when a new PWT .dta file is uploaded to B2. "
-        "Largest source: up to 640,000 observations across 47 metrics."
-    ),
-    timeout_seconds = 7200,  # 2 hours — largest source
+    description     = "Ingestion and transformation for pwt.",
+    timeout_seconds = 7200,
 )
 def pwt_flow():
-    """
-    PWT full pipeline: ingestion then transformation.
-    Triggered by upload_to_b2.py when a new .dta is uploaded.
-    """
     logger = get_run_logger()
     logger.info("pwt_flow started")
     pwt_ingest_task()
