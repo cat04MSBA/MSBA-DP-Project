@@ -1,13 +1,14 @@
 """
 orchestration/imf_flow.py
 =============================
-Prefect flow for imf ingestion and transformation.
+Prefect flow for IMF ingestion and transformation.
 on_failure hook sends email only after all retries exhausted.
 """
 
 from prefect import flow, task, get_run_logger
 from ingestion.imf_ingest import IMFIngestor
 from transformation.imf_transform import IMFTransformer
+from database.calculate_coverage import calculate_coverage
 from database.email_utils import send_critical_alert
 
 
@@ -35,9 +36,9 @@ def on_task_failure(task, task_run, state):
 )
 def imf_ingest_task():
     logger = get_run_logger()
-    logger.info("Starting imf ingestion")
+    logger.info("Starting IMF ingestion")
     IMFIngestor().run()
-    logger.info("imf ingestion complete")
+    logger.info("IMF ingestion complete")
 
 
 @task(
@@ -48,21 +49,35 @@ def imf_ingest_task():
 )
 def imf_transform_task():
     logger = get_run_logger()
-    logger.info("Starting imf transformation")
+    logger.info("Starting IMF transformation")
     IMFTransformer().run()
-    logger.info("imf transformation complete")
+    logger.info("IMF transformation complete")
+
+
+@task(
+    name                = "imf-coverage",
+    retries             = 1,
+    retry_delay_seconds = [60],
+)
+def imf_coverage_task():
+    """Update coverage statistics in metadata.metrics for IMF."""
+    logger = get_run_logger()
+    logger.info("Updating IMF coverage statistics")
+    calculate_coverage(source_id='imf')
+    logger.info("IMF coverage statistics updated")
 
 
 @flow(
     name            = "imf-flow",
-    description     = "Ingestion and transformation for imf.",
-    timeout_seconds = 1800,
+    description     = "Ingestion, transformation, and coverage update for IMF.",
+    timeout_seconds = 14400,
 )
 def imf_flow():
     logger = get_run_logger()
     logger.info("imf_flow started")
     imf_ingest_task()
     imf_transform_task()
+    imf_coverage_task()
     logger.info("imf_flow complete")
 
 

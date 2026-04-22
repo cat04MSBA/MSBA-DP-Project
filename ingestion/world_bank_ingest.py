@@ -87,11 +87,10 @@ import json
 import time
 import requests
 import pandas as pd
-from datetime import date, datetime
+from datetime import date
 from io import BytesIO
 
 from database.base_ingestor import BaseIngestor
-from database.email_utils import send_critical_alert
 
 # ─────────────────────────────────────────────────────────────
 # CONSTANTS

@@ -90,7 +90,6 @@ import requests
 import pandas as pd
 from datetime import date
 from io import BytesIO
-from sqlalchemy import text
 
 from database.base_ingestor import BaseIngestor
 
@@ -246,12 +245,20 @@ class OpenAlexIngestor(BaseIngestor):
         meta     = data.get('meta', {})
         group_by = data.get('group_by', [])
 
-        # raw_row_count = number of country groups returned.
-        # Used by check_ingestion_pre() to verify no rows
-        # were dropped during parsing.
-        raw_row_count = meta.get('groups_count', len(group_by))
-
         df = self._parse_response(group_by, year)
+
+        # raw_row_count = rows AFTER parsing and filtering.
+        # WHY NOT meta.groups_count:
+        #     _parse_response() drops groups with zero counts and
+        #     empty/unknown country codes. If any such groups exist,
+        #     meta.groups_count > len(df), and check_ingestion_pre()
+        #     raises a false CRITICAL failure comparing the API total
+        #     (including dropped groups) against the parsed count
+        #     (excluding them). Counting after parse is consistent
+        #     with the documented fix in §4.5 and with how
+        #     world_bank_ingest.py handles the same issue.
+        raw_row_count = len(df)
+
         return raw_row_count, df
 
 

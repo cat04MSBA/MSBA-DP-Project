@@ -265,7 +265,7 @@ class OxfordIngestor(BaseIngestor):
         Returns:
             (raw_row_count, df)
         """
-        b2_key = self.get_b2_key(year)
+        b2_key = self.get_b2_key_xlsx(year)
         xlsx_bytes = self.b2.download(b2_key)
 
         # ── Find correct sheet ─────────────────────────────────
@@ -296,11 +296,6 @@ class OxfordIngestor(BaseIngestor):
         # Drop completely empty rows that Excel sometimes adds.
         df_raw = df_raw.dropna(how='all').reset_index(drop=True)
 
-        # raw_row_count = rows in the sheet excluding header.
-        # Counted before any filtering — this is what
-        # check_ingestion_pre() compares against len(df).
-        raw_row_count = len(df_raw)
-
         # ── Detect score column ────────────────────────────────
         # Try fixed candidates first. Then try year-prefixed
         # patterns like '2024 Total' or '2023 Score'.
@@ -311,7 +306,7 @@ class OxfordIngestor(BaseIngestor):
                 break
 
         # If no fixed candidate matched, try year-prefixed columns.
-        # Pattern: '{year} Total', '{year} Score', '{year} Rank'
+        # Pattern: '{year} Total', '{year} Score'
         if score_col is None:
             for col in df_raw.columns:
                 if str(col).startswith(year) and any(
@@ -337,6 +332,17 @@ class OxfordIngestor(BaseIngestor):
 
         # ── Build standardized DataFrame ───────────────────────
         df = self._parse_oxford(df_raw, score_col, year)
+
+        # raw_row_count = rows AFTER parsing and filtering.
+        # WHY NOT len(df_raw):
+        #     _parse_oxford() drops rows with no country name, no
+        #     score, unmatched country names, and non-numeric scores.
+        #     If counted before parsing, raw_row_count > len(df) and
+        #     check_ingestion_pre() raises a false CRITICAL failure.
+        #     Counting after parse is consistent with §4.5 and with
+        #     how world_bank_ingest.py and openalex_ingest.py handle
+        #     the same issue.
+        raw_row_count = len(df)
 
         return raw_row_count, df
 
@@ -484,14 +490,43 @@ class OxfordIngestor(BaseIngestor):
 
     def get_b2_key(self, batch_unit: str) -> str:
         """
-        Return the B2 object key for a given year.
+        Return the B2 key for the PARSED JSON file.
 
-        WHY THE KEY IS CONSTRUCTED THIS WAY:
-            upload_to_b2.py uploads files using this same naming
-            convention: bronze/oxford/oxford_{year}_{date}.xlsx.
-            The ingestion script must use the exact same key to
-            read the file back. Both scripts use run_date (today)
-            as the date component.
+        WHY THIS IS THE PARSED JSON PATH (not the XLSX):
+            base_ingestor._process_batch() calls get_b2_key() to
+            decide where to upload the serialized DataFrame (step e)
+            and where to download it back for the checksum round-trip
+            (step f). serialize() produces JSON bytes, not XLSX bytes.
+            If get_b2_key() returned the XLSX path, those JSON bytes
+            would be uploaded to oxford_{year}_{date}.xlsx —
+            overwriting the original XLSX with JSON content and
+            giving it a misleading extension.
+
+            The transformation script's get_b2_key() also returns
+            this _parsed.json path. Both must match so the
+            transformation_pre checksum check finds the same file
+            the ingestion_post checksum was computed from.
+
+        The original XLSX on B2 is read by _read_oxford_file() via
+        get_b2_key_xlsx() — a separate method that is never called
+        by base_ingestor.
+
+        Naming convention:
+            bronze/oxford/oxford_2025_2026-04-20_parsed.json
+        """
+        return (
+            f"bronze/oxford/oxford_{batch_unit}"
+            f"_{self.run_date}_parsed.json"
+        )
+
+    def get_b2_key_xlsx(self, batch_unit: str) -> str:
+        """
+        Return the B2 key for the original uploaded XLSX file.
+
+        Called ONLY by _read_oxford_file() to download the raw
+        source file that upload_to_b2.py uploaded. Never called
+        by base_ingestor — the base class uses get_b2_key() which
+        points to the parsed JSON.
 
         Naming convention:
             bronze/oxford/oxford_2025_2026-04-20.xlsx
@@ -527,17 +562,6 @@ class OxfordIngestor(BaseIngestor):
         """Deserialize parsed JSON from B2 into DataFrame."""
         return pd.read_json(BytesIO(data), orient='records', convert_dates=False, dtype=False)
 
-    def get_b2_key_parsed(self, batch_unit: str) -> str:
-        """
-        Return the B2 key for the parsed JSON version.
-        The ingestion script uploads the parsed DataFrame here
-        after quality checks pass. The transformation script
-        reads from this key — not the original XLSX.
-        """
-        return (
-            f"bronze/oxford/oxford_{batch_unit}"
-            f"_{self.run_date}_parsed.json"
-        )
 
 
 if __name__ == "__main__":

@@ -163,10 +163,20 @@ class WorldBankTransformer(BaseTransformer):
                 "within the last 10 days. Run ingestion first."
             )
 
-        # Extract run_date from the most recent checkpoint.
-        # All checkpoints from one ingestion run share the same
-        # date — we take it from the first (most recent) row.
-        self.run_date = date.today().isoformat()
+        # Extract run_date from the most recent checkpoint's
+        # checkpointed_at timestamp. This is the date the ingestion
+        # script actually ran and used when naming B2 files.
+        #
+        # WHY NOT date.today():
+        #     Ingestion sets run_date = date.today() at __init__ time
+        #     and embeds it in every B2 key. If transformation runs
+        #     the next day, date.today() is a different date — the
+        #     transformer would construct keys that don't exist on B2,
+        #     causing a NoSuchKey error on every single batch.
+        #     Reading the date from checkpointed_at guarantees we use
+        #     the same date the ingestion script used, regardless of
+        #     when transformation runs.
+        self.run_date = rows[0][1].date().isoformat()
 
         # Return sorted batch_units for deterministic order.
         # Sorting ensures restart skips the same batches

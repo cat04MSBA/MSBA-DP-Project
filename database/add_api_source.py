@@ -51,7 +51,6 @@ ENV VARS REQUIRED:
 """
 
 import json
-import os
 import pycountry
 from datetime import date, datetime
 from pathlib import Path

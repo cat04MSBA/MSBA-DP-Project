@@ -68,7 +68,6 @@ HOW TO RUN MANUALLY (for testing or re-runs):
     Or via Prefect UI: select api-flow deployment, click Run.
 """
 
-import traceback
 from datetime import datetime
 from prefect import flow, task, get_run_logger
 from prefect.futures import wait
@@ -77,18 +76,22 @@ from prefect.task_runners import ConcurrentTaskRunner
 from orchestration.world_bank_flow import (
     world_bank_ingest_task,
     world_bank_transform_task,
+    world_bank_coverage_task,
 )
 from orchestration.imf_flow import (
     imf_ingest_task,
     imf_transform_task,
+    imf_coverage_task,
 )
 from orchestration.openalex_flow import (
     openalex_ingest_task,
     openalex_transform_task,
+    openalex_coverage_task,
 )
 from orchestration.oecd_flow import (
     oecd_ingest_task,
     oecd_transform_task,
+    oecd_coverage_task,
 )
 from database.email_utils import send_email
 
@@ -102,12 +105,15 @@ from database.email_utils import send_email
     description     = (
         "Master flow for all API sources: World Bank, IMF, "
         "OpenAlex, OECD. Runs monthly. Ingestion concurrent, "
-        "transformation sequential. Sends summary email at end."
+        "transformation and coverage sequential. "
+        "Sends summary email at end."
     ),
     task_runner     = ConcurrentTaskRunner(),
     # ConcurrentTaskRunner allows ingestion tasks to run
-    # concurrently. Transformation tasks run sequentially
-    # because they call .result() which blocks until complete.
+    # concurrently. Transformation and coverage tasks run
+    # sequentially because they call .result() which blocks
+    # until complete — prevents Supabase connection pool
+    # exhaustion on the free tier.
     timeout_seconds = 14400,  # 4 hours total
     # World Bank alone can take 2 hours on first run.
     # 4 hours covers all four sources with headroom.
@@ -120,8 +126,11 @@ def api_flow():
     simultaneously. Each hits its own external API and writes
     to B2. No shared state between them.
 
-    Phase 2 (sequential): transformation runs one source at a
-    time to avoid saturating Supabase connection pool.
+    Phase 2 (sequential): transformation then coverage runs
+    one source at a time to avoid saturating Supabase
+    free tier connection pool.
+
+    Phase 3: monthly summary email with per-source status.
     """
     logger     = get_run_logger()
     started_at = datetime.utcnow()
@@ -164,35 +173,64 @@ def api_flow():
         oe_ingest_future, 'oecd ingestion'
     )
 
-    logger.info("All ingestion tasks complete. Starting transformation...")
+    logger.info(
+        "All ingestion tasks complete. "
+        "Starting sequential transformation and coverage..."
+    )
 
-    # ── Phase 2: Sequential transformation ────────────────────
-    # Run transformation one source at a time to avoid
-    # saturating the Supabase free tier connection pool.
+    # ── Phase 2: Sequential transformation + coverage ─────────
+    # Run transformation then coverage one source at a time.
     # Each .submit() followed by immediate .result() is
     # effectively sequential — next does not start until
     # current completes.
-    for source, ingest_key, transform_task in [
-        ('world_bank', 'world_bank_ingestion',  world_bank_transform_task),
-        ('imf',        'imf_ingestion',          imf_transform_task),
-        ('openalex',   'openalex_ingestion',     openalex_transform_task),
-        ('oecd',       'oecd_ingestion',         oecd_transform_task),
+    #
+    # WHY COVERAGE RUNS HERE NOT SEPARATELY:
+    #   Coverage depends on transformation having written rows
+    #   to standardized.observations. Running it immediately
+    #   after each source's transformation ensures coverage
+    #   stats are always current after each monthly run
+    #   without any manual step. Coverage failure does NOT
+    #   block the next source — it is non-critical.
+    for source, ingest_key, transform_task, coverage_task in [
+        ('world_bank', 'world_bank_ingestion', world_bank_transform_task, world_bank_coverage_task),
+        ('imf',        'imf_ingestion',        imf_transform_task,        imf_coverage_task),
+        ('openalex',   'openalex_ingestion',   openalex_transform_task,   openalex_coverage_task),
+        ('oecd',       'oecd_ingestion',        oecd_transform_task,       oecd_coverage_task),
     ]:
         # Only run transformation if ingestion succeeded.
         # If ingestion failed, transformation would fail too
         # (no B2 files to read). Skip and log instead.
         if not results.get(ingest_key, False):
             logger.warning(
-                f"Skipping {source} transformation — "
+                f"Skipping {source} transformation and coverage — "
                 f"ingestion did not succeed."
             )
             results[f'{source}_transformation'] = False
+            results[f'{source}_coverage']       = False
             continue
 
         logger.info(f"Running {source} transformation...")
-        future = transform_task.submit()
-        results[f'{source}_transformation'] = _check_future(
-            future, f'{source} transformation'
+        transform_future = transform_task.submit()
+        transform_ok = _check_future(
+            transform_future, f'{source} transformation'
+        )
+        results[f'{source}_transformation'] = transform_ok
+
+        # Only run coverage if transformation succeeded.
+        # Coverage reads from standardized.observations —
+        # meaningless if transformation wrote no rows.
+        if not transform_ok:
+            logger.warning(
+                f"Skipping {source} coverage — "
+                f"transformation did not succeed."
+            )
+            results[f'{source}_coverage'] = False
+            continue
+
+        logger.info(f"Running {source} coverage update...")
+        coverage_future = coverage_task.submit()
+        results[f'{source}_coverage'] = _check_future(
+            coverage_future, f'{source} coverage'
         )
 
     # ── Phase 3: Summary email ─────────────────────────────────
@@ -233,8 +271,8 @@ def _check_future(future, label: str) -> bool:
 def _send_summary_email(results: dict, started_at: datetime):
     """
     Send monthly summary email to the team.
-    Lists each source's ingestion and transformation status.
-    Always sent regardless of individual source outcomes.
+    Lists each source's ingestion, transformation, and coverage
+    status. Always sent regardless of individual source outcomes.
 
     WHY ONE EMAIL PER MONTHLY RUN (not one per source):
         From design document Section 11: "Monthly summary email:
@@ -243,10 +281,10 @@ def _send_summary_email(results: dict, started_at: datetime):
         One consolidated email is less noisy than four separate
         emails and gives the team a complete picture at once.
     """
-    now       = datetime.utcnow()
-    duration  = now - started_at
-    minutes   = int(duration.total_seconds() // 60)
-    seconds   = int(duration.total_seconds() % 60)
+    now      = datetime.utcnow()
+    duration = now - started_at
+    minutes  = int(duration.total_seconds() // 60)
+    seconds  = int(duration.total_seconds() % 60)
 
     lines = [
         f"Monthly Pipeline Run — {now.strftime('%Y-%m-%d %H:%M UTC')}",
@@ -257,20 +295,29 @@ def _send_summary_email(results: dict, started_at: datetime):
         "",
     ]
 
-    sources = ['world_bank', 'imf', 'openalex', 'oecd']
+    sources    = ['world_bank', 'imf', 'openalex', 'oecd']
     all_passed = True
 
     for source in sources:
-        ingest_ok    = results.get(f'{source}_ingestion', False)
+        ingest_ok    = results.get(f'{source}_ingestion',     False)
         transform_ok = results.get(f'{source}_transformation', False)
-        status       = "✓ OK" if (ingest_ok and transform_ok) else "✗ FAILED"
-        if not (ingest_ok and transform_ok):
+        coverage_ok  = results.get(f'{source}_coverage',       False)
+
+        # Coverage failure is non-critical — does not count as
+        # an overall failure. Data is still in the silver layer.
+        overall_ok = ingest_ok and transform_ok
+        if not overall_ok:
             all_passed = False
 
+        status = "✓ OK" if overall_ok else "✗ FAILED"
+        cov_str = "OK" if coverage_ok else ("FAILED" if transform_ok else "SKIPPED")
+
         lines.append(
-            f"  {source:<20} ingestion: {'OK' if ingest_ok else 'FAILED'} | "
-            f"transformation: {'OK' if transform_ok else 'FAILED'} | "
-            f"overall: {status}"
+            f"  {source:<20} "
+            f"ingest: {'OK' if ingest_ok else 'FAILED'} | "
+            f"transform: {'OK' if transform_ok else 'FAILED'} | "
+            f"coverage: {cov_str} | "
+            f"{status}"
         )
 
     lines.extend([
@@ -279,6 +326,7 @@ def _send_summary_email(results: dict, started_at: datetime):
         "",
         "Check ops.pipeline_runs in Supabase for row counts.",
         "Check ops.quality_runs for quality check details.",
+        "Check metadata.metrics for updated coverage statistics.",
         "Check Prefect UI for full task logs.",
         "",
         "Next scheduled run: first day of next month at 02:00 UTC.",

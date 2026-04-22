@@ -17,10 +17,10 @@ EMAIL STRATEGY — on_failure hook:
 """
 
 from prefect import flow, task, get_run_logger
-from prefect.states import Failed
 
 from ingestion.oecd_ingest import OECDIngestor
 from transformation.oecd_transform import OECDTransformer
+from database.calculate_coverage import calculate_coverage
 from database.email_utils import send_critical_alert
 
 
@@ -90,6 +90,19 @@ def oecd_transform_task():
     logger.info("OECD transformation complete")
 
 
+@task(
+    name                = "oecd-coverage",
+    retries             = 1,
+    retry_delay_seconds = [60],
+)
+def oecd_coverage_task():
+    """Update coverage statistics in metadata.metrics for OECD MSTI."""
+    logger = get_run_logger()
+    logger.info("Updating OECD coverage statistics")
+    calculate_coverage(source_id='oecd_msti')
+    logger.info("OECD coverage statistics updated")
+
+
 # ═══════════════════════════════════════════════════════════════
 # FLOW
 # ═══════════════════════════════════════════════════════════════
@@ -97,16 +110,17 @@ def oecd_transform_task():
 @flow(
     name            = "oecd-flow",
     description     = (
-        "Ingestion and transformation for OECD MSTI. "
+        "Ingestion, transformation, and coverage update for OECD MSTI. "
         "3 metrics: BERD, GOVERD, researchers per thousand."
     ),
-    timeout_seconds = 900,
+    timeout_seconds = 3600,
 )
 def oecd_flow():
     logger = get_run_logger()
     logger.info("oecd_flow started")
     oecd_ingest_task()
     oecd_transform_task()
+    oecd_coverage_task()
     logger.info("oecd_flow complete")
 
 

@@ -32,13 +32,13 @@ class WIPOTransformer(BaseTransformer):
     def get_batch_units(self) -> list:
         with self.engine.connect() as conn:
             rows = conn.execute(text("""
-                SELECT batch_unit
+                SELECT batch_unit, checkpointed_at
                 FROM ops.checkpoints
                 WHERE source_id = 'wipo_ip'
                   AND stage     = 'ingestion_batch'
                   AND status    = 'complete'
                   AND checkpointed_at >= NOW() - INTERVAL '10 days'
-                ORDER BY batch_unit
+                ORDER BY checkpointed_at DESC
             """)).fetchall()
 
         if not rows:
@@ -47,7 +47,11 @@ class WIPOTransformer(BaseTransformer):
                 "within the last 10 days. Run ingestion first."
             )
 
-        self.run_date = date.today().isoformat()
+        # Extract run_date from the most recent checkpoint's
+        # checkpointed_at timestamp — the date ingestion actually
+        # ran and embedded in all B2 file keys.
+        # WHY NOT date.today(): see world_bank_transform.py comment.
+        self.run_date = rows[0][1].date().isoformat()
         return [row[0] for row in rows]
 
 

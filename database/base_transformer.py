@@ -426,12 +426,44 @@ class BaseTransformer(ABC):
     # ═══════════════════════════════════════════════════════
 
     def _is_first_run(self, conn) -> bool:
-        """True if last_retrieved is NULL — no prior successful run."""
+        """
+        True if no transformation_batch checkpoint has ever completed
+        for this source — meaning the silver layer has no rows from
+        this source yet.
+
+        WHY NOT last_retrieved:
+            last_retrieved is updated by the INGESTION script at the
+            end of a successful ingest run. By the time transformation
+            runs, last_retrieved is already set — even on the very
+            first ever transformation. Using last_retrieved would
+            always return False here, defeating the first-run fast
+            path entirely and forcing revision detection + read-back
+            on every single batch even when the silver layer is empty.
+
+        WHY transformation_batch checkpoints:
+            A completed transformation_batch checkpoint means at least
+            one batch was successfully upserted to Supabase. If none
+            exist for this source, the silver layer has no rows for
+            this source — revision detection and read-back have nothing
+            to compare against and would waste hundreds of round trips.
+            This correctly returns True on the first ever transformation
+            run and False on all subsequent runs.
+
+        WHY NO 10-DAY WINDOW FILTER HERE:
+            Unlike get_completed_batches() which needs a window to
+            avoid cross-run contamination, this check just needs to
+            know if ANY transformation has ever succeeded for this
+            source — ever, not just recently. An old checkpoint from
+            6 months ago correctly tells us the silver layer has rows.
+        """
         row = conn.execute(text("""
-            SELECT last_retrieved FROM metadata.sources
+            SELECT 1 FROM ops.checkpoints
             WHERE source_id = :source_id
+              AND stage      = 'transformation_batch'
+              AND status     = 'complete'
+            LIMIT 1
         """), {'source_id': self.source_id}).fetchone()
-        return row is None or row[0] is None
+        return row is None
 
     def _load_valid_iso3(self, conn) -> set:
         return {r[0] for r in conn.execute(text(

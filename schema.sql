@@ -258,9 +258,29 @@ CREATE TABLE metadata.metrics (
   -- First year this metric has data. NULL until
   -- calculate_coverage.py runs after ingestion.
 
-  available_to    SMALLINT
+  available_to    SMALLINT,
   -- Last year this metric has data. NULL until
   -- calculate_coverage.py runs after ingestion.
+
+  country_count   SMALLINT,
+  -- Number of distinct countries with at least one observation
+  -- for this metric. NULL until calculate_coverage.py runs.
+  -- Shown in Streamlit metric picker so researchers know
+  -- how broad coverage is before selecting a metric.
+
+  observation_count  INTEGER,
+  -- Total rows in standardized.observations for this metric
+  -- across all countries and years. NULL until
+  -- calculate_coverage.py runs.
+
+  missing_value_rate  NUMERIC(5, 2)
+  -- Percentage of rows where value IS NULL or value = ''
+  -- out of all rows for this metric (0.00-100.00).
+  -- NULL until calculate_coverage.py runs.
+  -- WHY STORED NOT COMPUTED AT QUERY TIME:
+  --   Computing over millions of rows per metric at query time
+  --   is expensive. Stored once after ingestion and refreshed
+  --   on every ingestion cycle — a free single-row lookup.
 );
 
 
@@ -296,6 +316,19 @@ CREATE TABLE metadata.countries (
   -- World Bank geographic region. Used for regional comparisons.
   -- Examples: 'Middle East & North Africa', 'Europe & Central Asia'
 
+  continent     TEXT,
+  -- Standard 7-continent grouping. Derived from ISO3 at seeding
+  -- time via a static mapping. Never NULL for valid countries.
+  -- Values: 'Africa', 'Asia', 'Europe', 'North America',
+  --         'South America', 'Oceania', 'Antarctica'
+  -- WHY A COLUMN NOT A SEPARATE TABLE:
+  --   continent is a fixed static property of a country — it never
+  --   changes. A separate table would add a join on every researcher
+  --   query that filters by continent. Since metadata.countries is
+  --   already joined when resolving country names, adding continent
+  --   as a column costs nothing at query time. ~266 rows of static
+  --   data stored once, joined zero extra times.
+
   income_group  TEXT,
   -- World Bank income classification. Used for income comparisons.
   -- Values: 'Low Income', 'Lower Middle Income',
@@ -305,6 +338,39 @@ CREATE TABLE metadata.countries (
   -- Documents edge cases. Only populated for the 5 above.
   -- All other countries have NULL notes.
 );
+
+-- Indexes on metadata.countries for researcher filtering.
+-- These tables are small (~266 rows) but indexed so that
+-- Streamlit filter queries (e.g. show all African countries,
+-- show all High Income countries) use index scans not full
+-- table scans — consistent behaviour as the table grows.
+CREATE INDEX idx_countries_continent
+  ON metadata.countries (continent);
+  -- Researcher filter: show all countries in Africa/Asia/etc.
+  -- Most common geographic filter in the Streamlit UI.
+
+CREATE INDEX idx_countries_region
+  ON metadata.countries (region);
+  -- World Bank sub-region filter (finer than continent).
+  -- Example: 'Middle East & North Africa' subset queries.
+
+CREATE INDEX idx_countries_income_group
+  ON metadata.countries (income_group);
+  -- Income group filter: High Income / Low Income comparisons.
+
+
+-- Indexes on metadata.metrics for researcher browsing.
+CREATE INDEX idx_metrics_source_id
+  ON metadata.metrics (source_id);
+  -- Filter metrics by source: show only World Bank metrics.
+
+CREATE INDEX idx_metrics_category
+  ON metadata.metrics (category);
+  -- Filter metrics by category: show only 'Economy & Growth'.
+
+CREATE INDEX idx_metrics_frequency
+  ON metadata.metrics (frequency);
+  -- Filter metrics by frequency: show only annual metrics.
 
 
 -- ------------------------------------------------------------
@@ -361,6 +427,15 @@ CREATE TABLE metadata.country_codes (
   -- Prevents accidental duplicate mappings across countries.
 );
 
+-- Index on source_id for transformation crosswalk lookups.
+-- Every transformation script does:
+--   WHERE source_id = 'imf'  (or 'openalex', 'wipo_ip', etc.)
+-- to load the full country code dict once per run. Without this
+-- index every such load is a full table scan on ~1,862 rows.
+-- With it, PostgreSQL jumps directly to the ~266 rows for that source.
+CREATE INDEX idx_country_codes_source_id
+  ON metadata.country_codes (source_id);
+
 
 -- ------------------------------------------------------------
 -- metadata.metric_codes
@@ -396,6 +471,14 @@ CREATE TABLE metadata.metric_codes (
   UNIQUE (source_id, code)
   -- One source code maps to exactly one metric_id.
 );
+
+-- Index on source_id for ingestion batch unit queries.
+-- Every ingestor's get_batch_units() does:
+--   WHERE source_id = 'world_bank'  (or 'imf', 'oecd_msti', etc.)
+-- to retrieve the list of indicator codes to process this run.
+-- Called once per pipeline run per source.
+CREATE INDEX idx_metric_codes_source_id
+  ON metadata.metric_codes (source_id);
 
 
 -- ============================================================
@@ -937,7 +1020,54 @@ CREATE TABLE ops.metadata_changes (
 );
 
 
+-- ============================================================
+-- STEP 4c — INDEXES ON OPS TABLES
+--
+-- These indexes serve two audiences:
+--   Pipeline code:   checkpoint queries on every batch,
+--                    quality check inserts and reads.
+--   Team monitoring: filtering runs/checks by source when
+--                    debugging failures.
+--
+-- WHY ops.checkpoints IS THE MOST CRITICAL:
+--   get_completed_batches() runs on EVERY batch unit processed —
+--   439 times for World Bank, 132 times for IMF, 37 for OpenAlex.
+--   get_ingestion_checksum() runs on EVERY transformation batch.
+--   Without an index on (source_id, stage, status), every call
+--   is a full table scan on a growing ops.checkpoints table.
+--   With the index, each call is an O(log n) lookup.
+-- ============================================================
 
+-- ops.checkpoints — most performance-critical index in the system.
+-- Both get_completed_batches() and get_ingestion_checksum() filter
+-- on (source_id, stage, status, checkpointed_at). The composite
+-- index covers all four predicates in one scan.
+-- checkpointed_at is included last so the 10-day range filter
+-- benefits from the index after source_id and stage narrow the set.
+CREATE INDEX idx_checkpoints_source_stage_status
+  ON ops.checkpoints (source_id, stage, status, checkpointed_at DESC);
+
+-- ops.pipeline_runs — filtered by source_id in monitoring queries
+-- and by status to find running/failed runs.
+CREATE INDEX idx_pipeline_runs_source_id
+  ON ops.pipeline_runs (source_id);
+
+CREATE INDEX idx_pipeline_runs_status
+  ON ops.pipeline_runs (status);
+
+-- ops.quality_runs — filtered by source_id and stage in the
+-- Streamlit data provenance panel and team debugging queries.
+CREATE INDEX idx_quality_runs_source_id
+  ON ops.quality_runs (source_id);
+
+CREATE INDEX idx_quality_runs_stage_passed
+  ON ops.quality_runs (stage, passed);
+  -- Find failed checks of a specific stage quickly.
+  -- Example: all failed pre_upsert checks across all sources.
+
+
+-- ============================================================
+-- STEP 5 — STANDARDIZED SCHEMA
 --
 -- The heart of the system. One unified table containing every
 -- observation from every source, reduced to one canonical shape:

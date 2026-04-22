@@ -98,7 +98,11 @@ class OxfordTransformer(BaseTransformer):
                 "within the last 10 days. Run ingestion first."
             )
 
-        self.run_date = date.today().isoformat()
+        # Extract run_date from the most recent checkpoint's
+        # checkpointed_at timestamp — the date ingestion actually
+        # ran and embedded in all B2 file keys.
+        # WHY NOT date.today(): see world_bank_transform.py comment.
+        self.run_date = rows[0][1].date().isoformat()
         return sorted({row[0] for row in rows})
 
 

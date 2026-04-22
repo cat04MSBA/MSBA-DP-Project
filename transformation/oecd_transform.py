@@ -47,17 +47,18 @@ class OECDTransformer(BaseTransformer):
         """
         Return the list of metrics that have completed ingestion
         checkpoints within the last 10 days.
-        Sets run_date = date.today() to match ingestion B2 keys.
+        Sets run_date from the checkpoint timestamp — not date.today()
+        — so get_b2_key() matches the B2 paths written at ingestion.
         """
         with self.engine.connect() as conn:
             rows = conn.execute(text("""
-                SELECT batch_unit
+                SELECT batch_unit, checkpointed_at
                 FROM ops.checkpoints
                 WHERE source_id = 'oecd_msti'
                   AND stage     = 'ingestion_batch'
                   AND status    = 'complete'
                   AND checkpointed_at >= NOW() - INTERVAL '10 days'
-                ORDER BY batch_unit
+                ORDER BY checkpointed_at DESC
             """)).fetchall()
 
         if not rows:
@@ -66,8 +67,11 @@ class OECDTransformer(BaseTransformer):
                 "within the last 10 days. Run ingestion first."
             )
 
-        # run_date matches ingestion which uses date.today().isoformat()
-        self.run_date = date.today().isoformat()
+        # Extract run_date from the most recent checkpoint's
+        # checkpointed_at timestamp — the date ingestion actually
+        # ran and embedded in all B2 file keys.
+        # WHY NOT date.today(): see world_bank_transform.py comment.
+        self.run_date = rows[0][1].date().isoformat()
         return [row[0] for row in rows]
 
 

@@ -8,6 +8,7 @@ on_failure hook sends email only after all retries exhausted.
 from prefect import flow, task, get_run_logger
 from ingestion.world_bank_ingest import WorldBankIngestor
 from transformation.world_bank_transform import WorldBankTransformer
+from database.calculate_coverage import calculate_coverage
 from database.email_utils import send_critical_alert
 
 
@@ -53,9 +54,32 @@ def world_bank_transform_task():
     logger.info("World Bank transformation complete")
 
 
+@task(
+    name   = "world-bank-coverage",
+    retries = 1,
+    retry_delay_seconds = [60],
+)
+def world_bank_coverage_task():
+    """
+    Update coverage statistics in metadata.metrics for World Bank.
+    Runs after transformation so available_from, available_to,
+    country_count, observation_count, and missing_value_rate
+    reflect the latest ingested data.
+
+    WHY retries=1 (not 3):
+        Coverage is non-critical — a failure here does not affect
+        the data itself. One retry is sufficient. If it still fails,
+        the team can run calculate_coverage.py manually.
+    """
+    logger = get_run_logger()
+    logger.info("Updating World Bank coverage statistics")
+    calculate_coverage(source_id='world_bank')
+    logger.info("World Bank coverage statistics updated")
+
+
 @flow(
     name            = "world-bank-flow",
-    description     = "Ingestion and transformation for World Bank WDI.",
+    description     = "Ingestion, transformation, and coverage update for World Bank WDI.",
     timeout_seconds = 7200,
 )
 def world_bank_flow():
@@ -63,6 +87,7 @@ def world_bank_flow():
     logger.info("world_bank_flow started")
     world_bank_ingest_task()
     world_bank_transform_task()
+    world_bank_coverage_task()
     logger.info("world_bank_flow complete")
 
 

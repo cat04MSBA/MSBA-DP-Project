@@ -1,13 +1,15 @@
 """
 orchestration/wipo_flow.py
 ==============================
-Prefect flow for wipo ingestion and transformation.
+Prefect flow for WIPO IP Statistics ingestion and transformation.
+Triggered by upload_to_b2.py when a new WIPO CSV is uploaded.
 on_failure hook sends email only after all retries exhausted.
 """
 
 from prefect import flow, task, get_run_logger
 from ingestion.wipo_ingest import WIPOIngestor
 from transformation.wipo_transform import WIPOTransformer
+from database.calculate_coverage import calculate_coverage
 from database.email_utils import send_critical_alert
 
 
@@ -35,9 +37,9 @@ def on_task_failure(task, task_run, state):
 )
 def wipo_ingest_task():
     logger = get_run_logger()
-    logger.info("Starting wipo ingestion")
+    logger.info("Starting WIPO ingestion")
     WIPOIngestor().run()
-    logger.info("wipo ingestion complete")
+    logger.info("WIPO ingestion complete")
 
 
 @task(
@@ -48,21 +50,35 @@ def wipo_ingest_task():
 )
 def wipo_transform_task():
     logger = get_run_logger()
-    logger.info("Starting wipo transformation")
+    logger.info("Starting WIPO transformation")
     WIPOTransformer().run()
-    logger.info("wipo transformation complete")
+    logger.info("WIPO transformation complete")
+
+
+@task(
+    name                = "wipo-coverage",
+    retries             = 1,
+    retry_delay_seconds = [60],
+)
+def wipo_coverage_task():
+    """Update coverage statistics in metadata.metrics for WIPO IP."""
+    logger = get_run_logger()
+    logger.info("Updating WIPO coverage statistics")
+    calculate_coverage(source_id='wipo_ip')
+    logger.info("WIPO coverage statistics updated")
 
 
 @flow(
     name            = "wipo-flow",
-    description     = "Ingestion and transformation for wipo.",
-    timeout_seconds = 1800,
+    description     = "Ingestion, transformation, and coverage update for WIPO IP Statistics.",
+    timeout_seconds = 7200,
 )
 def wipo_flow():
     logger = get_run_logger()
     logger.info("wipo_flow started")
     wipo_ingest_task()
     wipo_transform_task()
+    wipo_coverage_task()
     logger.info("wipo_flow complete")
 
 

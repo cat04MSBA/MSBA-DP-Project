@@ -33,8 +33,8 @@ USAGE:
 
 B2 PATHS:
     Oxford: bronze/oxford/oxford_{year}_{date}.xlsx
-    WIPO:   bronze/wipo_ip/full_file_{date}.csv
-    PWT:    bronze/pwt/pwt110.dta
+    WIPO:   bronze/wipo_ip/source_{date}.csv
+    PWT:    bronze/pwt/source_{date}.dta
 
 WHY ONE SCRIPT FOR ALL MANUAL SOURCES:
     A single entry point with --source routing is simpler than
@@ -71,7 +71,6 @@ LOGGING:
 
 import argparse
 import json
-import os
 import socket
 from datetime import date, datetime
 from pathlib import Path
@@ -125,14 +124,16 @@ def get_b2_key(source: str, year: str = None) -> str:
     if source == 'oxford':
         return f"bronze/oxford/oxford_{year}_{today}.xlsx"
     elif source == 'wipo':
-        return f"bronze/wipo_ip/full_file_{today}.csv"
+        # wipo_ingest.py reads from: bronze/wipo_ip/source_{date}.csv
+        # Must match _read_wipo_file() in wipo_ingest.py exactly.
+        return f"bronze/wipo_ip/source_{today}.csv"
     elif source == 'pwt':
-        # PWT .dta stored at a fixed path — not date-stamped.
-        # The ingestion script always reads from this fixed path.
-        # When a new PWT version is released, this file is
-        # overwritten. The ingestion script detects the new
-        # version via last_retrieved comparison.
-        return "bronze/pwt/pwt110.dta"
+        # pwt_ingest.py reads from: bronze/pwt/source_{date}.dta
+        # Date-stamped so multiple PWT versions can coexist on B2
+        # and the transformer can reconstruct the correct key from
+        # the ingestion checkpoint's checkpointed_at date.
+        # Must match _read_stata_file() in pwt_ingest.py exactly.
+        return f"bronze/pwt/source_{today}.dta"
     else:
         raise ValueError(f"Unknown source: {source}")
 

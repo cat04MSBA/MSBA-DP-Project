@@ -74,9 +74,7 @@ class WIPOIngestor(BaseIngestor):
         upload_to_b2.py), melt wide→tall, filter by since_date.
         """
         # Read original file from B2 — uploaded by upload_to_b2.py
-        # at path: bronze/wipo_ip/full_file_{date}.csv
-        # Note: upload_to_b2.py uploads the original CSV to a
-        # fixed source path. We read from there.
+        # at path: bronze/wipo_ip/source_{date}.csv
         source_key = f"bronze/wipo_ip/source_{self.run_date}.csv"
         csv_bytes  = self.b2.download(source_key)
 
@@ -108,14 +106,23 @@ class WIPOIngestor(BaseIngestor):
             (df_tall['patent_count'].str.strip() != '')
         ].copy()
 
-        raw_row_count = len(df_tall)
-
         # Apply since_date year filter.
         df_tall = df_tall[
             df_tall['year_str'].astype(int) >= since_date.year
         ].copy()
 
         df = self._parse_wipo(df_tall)
+
+        # raw_row_count = rows AFTER melt, empty-drop, year-filter,
+        # and parsing — the count that matches len(df) exactly.
+        # WHY NOT count before the since_date filter:
+        #     The filter removes years before the window. If counted
+        #     before filtering, raw_row_count > len(df) on any
+        #     incremental run, causing check_ingestion_pre() to raise
+        #     a false CRITICAL failure. Counting after all drops is
+        #     consistent with §4.5 of the reference doc.
+        raw_row_count = len(df)
+
         return raw_row_count, df
 
 

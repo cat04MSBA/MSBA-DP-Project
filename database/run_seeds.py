@@ -27,13 +27,12 @@ import os
 import time
 
 scripts = [
-    ('seed_sources.py',       'Populating metadata.sources (8 sources)'),
+    ('seed_sources.py',       'Populating metadata.sources (7 sources)'),
     ('seed_countries.py',     'Populating metadata.countries (~266 countries)'),
     ('seed_metrics.py',       'Populating metadata.metrics (all sources)'),
     ('seed_country_codes.py', 'Populating metadata.country_codes (crosswalk)'),
     ('seed_metric_codes.py',  'Populating metadata.metric_codes (crosswalk)'),
 ]
-
 print("=" * 60)
 print("RUNNING ALL SEED SCRIPTS")
 print("=" * 60)
@@ -64,6 +63,27 @@ total_elapsed = time.time() - total_start
 print("\n" + "=" * 60)
 print(f"ALL SEED SCRIPTS COMPLETED in {total_elapsed:.1f}s")
 print("=" * 60)
+
+# ── Final step: validate seed integrity ───────────────────────
+# Verifies that all metadata tables are consistent and complete
+# before any pipeline run is attempted. Exits with code 1 if
+# any critical check fails so CI/CD or manual runs can catch it.
+print("\n[6/6] Validating seed integrity...")
+print("-" * 60)
+import subprocess
+val_result = subprocess.run(
+    [sys.executable, "database/validate_seeds.py"],
+    capture_output=False,
+    env={**os.environ, 'PYTHONPATH': '.'}
+)
+if val_result.returncode != 0:
+    print(
+        "\n✗ SEED VALIDATION FAILED — do not run the pipeline.\n"
+        "  Fix the issues reported above, then re-run: "
+        "python3 -m database.run_seeds"
+    )
+    sys.exit(1)
+
 print("\nNext steps:")
 print("  1. Run ingestion scripts to pull actual data")
 print("  2. After ingestion, run calculate_coverage.py to")

@@ -9,17 +9,14 @@ existing first due to foreign key constraints.
 Safe to re-run — uses upsert logic throughout.
 Existing rows updated, new rows inserted, nothing deleted.
 
-Sources (8 confirmed):
+Sources (7 confirmed):
     world_bank  World Bank WDI
-    imf         IMF (WEO, IFS, Fiscal Monitor, AI Prep Index)
+    imf         IMF DataMapper
     oxford      Oxford Insights GAIRI
     pwt         Penn World Tables
-    epoch_ai    Epoch AI Large-Scale AI Models
     openalex    OpenAlex AI Publications
     wipo_ip     WIPO IP Statistics (AI Patents)
     oecd_msti   OECD Main Science and Technology Indicators
-
-UN sources added separately after API keys obtained.
 """
 
 import pandas as pd

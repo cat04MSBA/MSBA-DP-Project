@@ -1,215 +1,272 @@
 """
 database/calculate_coverage.py
 ==============================
-Populates available_from and available_to in metadata.metrics
-after ingestion by computing MIN(year) and MAX(year) from
-standardized.observations for each metric.
+Computes and stores data coverage statistics in metadata.metrics
+after each ingestion/transformation cycle.
 
-WHAT THIS FILE DOES:
-    Runs after ingestion completes. For every metric in
-    metadata.metrics, queries standardized.observations to find
-    the earliest and latest year that actually has data, then
-    updates available_from and available_to accordingly.
+WHAT THIS COMPUTES (per metric):
+    available_from      → earliest year with at least one observation
+    available_to        → latest year with at least one observation
+    country_count       → number of distinct countries with data
+    observation_count   → total rows across all countries and years
+    missing_value_rate  → % of rows where value IS NULL or ''
 
-WHY THIS EXISTS AS A SEPARATE SCRIPT:
-    available_from and available_to cannot be set at seeding time
-    because no data exists yet. They cannot be set during ingestion
-    because ingestion writes one batch at a time — the MIN/MAX
-    across all batches is only known after ingestion completes.
-    A separate post-ingestion script computing these values from
-    actual data is the cleanest design.
+WHY FIVE DIMENSIONS NOT JUST YEAR RANGE:
+    Year range alone tells a researcher when a metric starts and
+    ends, but not whether it is useful. A metric that exists from
+    1990 to 2023 but covers only 12 countries, or has 40% missing
+    values, is not useful for global comparisons. Showing all five
+    dimensions in the Streamlit metric picker gives researchers the
+    information they need before running a query. Computing them at
+    query time over millions of rows is expensive — storing them
+    once here makes every UI lookup a free single-row read.
 
-WHY NOT COMPUTED AT QUERY TIME:
-    The Streamlit app shows researchers which years a metric
-    covers before they submit a query. Computing MIN/MAX on
-    standardized.observations at query time would be expensive
-    for a table with millions of rows. Storing it in metadata.metrics
-    makes this a single-row lookup.
+WHY ONE QUERY PER SOURCE NOT ONE QUERY PER METRIC:
+    GROUP BY metric_id in one query returns all five aggregates for
+    all metrics of a source in a single round trip. For World Bank
+    with 439 metrics, this is one query instead of 439. PostgreSQL
+    partition pruning scans only partitions with data for that
+    source, keeping the query fast even as the table grows.
 
-WHY available_from AND available_to ARE EXCLUDED FROM SEED SCRIPT UPDATES:
-    seed_metrics.py intentionally excludes these columns from
-    its ON CONFLICT DO UPDATE. If seed scripts could overwrite
-    them, a re-seed after ingestion would reset coverage to NULL.
-    Only this script ever writes to these columns.
+WHY STORED IN metadata.metrics NOT A SEPARATE TABLE:
+    Coverage stats are a property of a metric, not a separate
+    entity. The Streamlit app already joins metadata.metrics for
+    metric_name, unit, and category — adding five more columns
+    adds zero extra joins. A separate coverage table would require
+    an additional join on every metric picker query.
 
-WHEN TO RUN:
-    After every ingestion run. The orchestration flows call this
-    automatically at the end of each source's transformation.
-    Can also be run manually:
-        python3 database/calculate_coverage.py
-        python3 database/calculate_coverage.py --source world_bank
+WHEN THIS RUNS:
+    Called automatically at the end of each source flow, after
+    transformation completes successfully. Also callable manually:
+        python3 -m database.calculate_coverage
+        python3 -m database.calculate_coverage --source world_bank
+
+    Re-run manually after any ad-hoc data backfill or after
+    running add_metric.py --action yes to ingest parked rows.
 
 PERFORMANCE:
-    Uses one query per source (not one per metric) by grouping
-    on metric_id. For ~500 metrics this is much more efficient
-    than 500 individual MIN/MAX queries.
-    The query uses partition pruning — PostgreSQL only scans
-    the relevant year partitions for each metric.
-
-ENV VARS REQUIRED:
-    DATABASE_URL
+    One GROUP BY query per source. PostgreSQL partition pruning
+    ensures only relevant year partitions are scanned per metric.
+    The UPDATE loop iterates over ~500 metrics maximum, each
+    touching a single indexed row (PK lookup on metric_id).
+    Total runtime: under 30 seconds for all sources combined.
 """
 
 import argparse
-import pandas as pd
-from datetime import datetime
 from sqlalchemy import text
 from database.connection import get_engine
 
 engine = get_engine()
 
 
-def calculate_coverage(source_id: str = None):
+def calculate_coverage(source_id: str = None) -> None:
     """
-    Compute and update available_from and available_to for all
-    metrics, or for one source only if source_id is provided.
+    Compute and update all five coverage fields in metadata.metrics
+    for every metric of the given source, or all sources if None.
 
     Args:
-        source_id: If provided, only update metrics for this source.
-                   If None, update all metrics.
+        source_id: Limit update to this source. If None, all sources.
     """
-    print("=" * 50)
+    print("=" * 55)
     print("Calculating metric coverage...")
     if source_id:
-        print(f"  Filtering to source: {source_id}")
-    print("=" * 50)
+        print(f"  Source: {source_id}")
+    print("=" * 55)
 
     with engine.connect() as conn:
 
         # ── Step 1: Load metrics to update ────────────────────
-        # Load metric_id and source_id for all metrics that need
-        # coverage calculation. Filter by source_id if provided.
+        # Pull just metric_id so we know which metrics to expect
+        # results for. Filtering by source avoids loading all
+        # metrics when only one source changed.
         if source_id:
-            metrics_df = pd.read_sql(text("""
-                SELECT metric_id, source_id
+            rows = conn.execute(text("""
+                SELECT metric_id
                 FROM metadata.metrics
                 WHERE source_id = :source_id
-            """), conn, params={'source_id': source_id})
+                ORDER BY metric_id
+            """), {'source_id': source_id}).fetchall()
         else:
-            metrics_df = pd.read_sql(text("""
-                SELECT metric_id, source_id
+            rows = conn.execute(text("""
+                SELECT metric_id
                 FROM metadata.metrics
-                ORDER BY source_id, metric_id
-            """), conn)
+                ORDER BY metric_id
+            """)).fetchall()
 
-        if metrics_df.empty:
-            print("  No metrics found to update.")
+        if not rows:
+            print("  No metrics found.")
             return
 
-        print(f"  Found {len(metrics_df)} metrics to calculate coverage for")
+        all_metric_ids = {r[0] for r in rows}
+        print(f"  {len(all_metric_ids)} metrics to update")
 
-        # ── Step 2: Compute MIN/MAX year per metric ────────────
-        # One query groups all metrics together — far more
-        # efficient than one query per metric. PostgreSQL's
-        # partition pruning ensures only relevant partitions
-        # are scanned for each metric_id.
+        # ── Step 2: Compute all five aggregates in one query ───
+        # One GROUP BY query returns all aggregates for all metrics
+        # of this source in a single round trip. PostgreSQL's
+        # partition pruning ensures only relevant year partitions
+        # are scanned for each metric_id group.
+        #
+        # missing_value_rate: count rows where value is NULL or
+        # empty string, divide by total, multiply by 100.
+        # NULLIF avoids division by zero on metrics with no rows
+        # (though such metrics would not appear in observations).
         if source_id:
-            coverage_df = pd.read_sql(text("""
+            agg_rows = conn.execute(text("""
                 SELECT
                     metric_id,
-                    MIN(year) AS available_from,
-                    MAX(year) AS available_to,
-                    COUNT(*) AS observation_count
+                    MIN(year)                                   AS available_from,
+                    MAX(year)                                   AS available_to,
+                    COUNT(DISTINCT country_iso3)::SMALLINT      AS country_count,
+                    COUNT(*)::INTEGER                           AS observation_count,
+                    ROUND(
+                        100.0 *
+                        COUNT(*) FILTER (
+                            WHERE value IS NULL OR value = ''
+                        ) /
+                        NULLIF(COUNT(*), 0),
+                        2
+                    )                                           AS missing_value_rate
                 FROM standardized.observations
                 WHERE source_id = :source_id
                 GROUP BY metric_id
-            """), conn, params={'source_id': source_id})
+            """), {'source_id': source_id}).fetchall()
         else:
-            coverage_df = pd.read_sql(text("""
+            agg_rows = conn.execute(text("""
                 SELECT
                     metric_id,
-                    MIN(year) AS available_from,
-                    MAX(year) AS available_to,
-                    COUNT(*) AS observation_count
+                    MIN(year)                                   AS available_from,
+                    MAX(year)                                   AS available_to,
+                    COUNT(DISTINCT country_iso3)::SMALLINT      AS country_count,
+                    COUNT(*)::INTEGER                           AS observation_count,
+                    ROUND(
+                        100.0 *
+                        COUNT(*) FILTER (
+                            WHERE value IS NULL OR value = ''
+                        ) /
+                        NULLIF(COUNT(*), 0),
+                        2
+                    )                                           AS missing_value_rate
                 FROM standardized.observations
                 GROUP BY metric_id
-            """), conn)
+            """)).fetchall()
 
-        print(
-            f"  Found coverage data for "
-            f"{len(coverage_df)} metrics in standardized.observations"
-        )
+        # Index results by metric_id for O(1) lookup in the
+        # update loop below — avoids scanning the results list
+        # once per metric (O(n²) for 439+ metrics).
+        agg = {
+            r[0]: {
+                'available_from':     int(r[1]) if r[1] is not None else None,
+                'available_to':       int(r[2]) if r[2] is not None else None,
+                'country_count':      int(r[3]) if r[3] is not None else None,
+                'observation_count':  int(r[4]) if r[4] is not None else None,
+                'missing_value_rate': float(r[5]) if r[5] is not None else None,
+            }
+            for r in agg_rows
+        }
+
+        print(f"  Coverage data found for {len(agg)} metrics")
 
         # ── Step 3: Update metadata.metrics ───────────────────
-        # Row-by-row update is acceptable here because:
-        # - This runs once after ingestion, not in a hot loop
-        # - Volume is hundreds of metrics, not millions of rows
-        # - Each UPDATE touches exactly one row (PK lookup)
-        updated    = 0
-        no_data    = 0
-        unchanged  = 0
+        # Row-by-row UPDATE is acceptable here:
+        #   - Runs once after ingestion, not in a hot loop
+        #   - Each UPDATE touches exactly one indexed row (PK)
+        #   - Volume is hundreds of metrics, never millions
+        updated   = 0
+        no_data   = 0
+        unchanged = 0
 
-        for _, metric_row in metrics_df.iterrows():
-            metric_id = metric_row['metric_id']
-
-            # Find coverage for this metric.
-            coverage = coverage_df[
-                coverage_df['metric_id'] == metric_id
-            ]
-
-            if coverage.empty:
-                # No observations exist for this metric yet.
-                # This is expected for metrics that were seeded
-                # but whose ingestion has not run yet.
+        for metric_id in sorted(all_metric_ids):
+            if metric_id not in agg:
+                # No observations exist yet for this metric.
+                # Expected for metrics seeded but not yet ingested.
                 no_data += 1
                 continue
 
-            av_from = int(coverage.iloc[0]['available_from'])
-            av_to   = int(coverage.iloc[0]['available_to'])
-            count   = int(coverage.iloc[0]['observation_count'])
+            new = agg[metric_id]
 
-            # Check current stored values to detect changes.
+            # Read current stored values to detect changes.
+            # Skipping unchanged metrics avoids unnecessary writes
+            # and keeps the UPDATE audit trail clean.
             current = conn.execute(text("""
-                SELECT available_from, available_to
+                SELECT available_from, available_to,
+                       country_count, observation_count,
+                       missing_value_rate
                 FROM metadata.metrics
                 WHERE metric_id = :metric_id
             """), {'metric_id': metric_id}).fetchone()
 
-            if (current and
-                current[0] == av_from and
-                current[1] == av_to):
-                # No change — skip the UPDATE.
+            # Consider unchanged if all five fields match.
+            # Use a small epsilon for the float comparison on
+            # missing_value_rate to tolerate rounding differences.
+            if (
+                current is not None              and
+                current[0] == new['available_from']    and
+                current[1] == new['available_to']      and
+                current[2] == new['country_count']     and
+                current[3] == new['observation_count'] and
+                current[4] is not None                 and
+                abs(float(current[4]) - new['missing_value_rate']) < 0.01
+            ):
                 unchanged += 1
                 continue
 
-            # Apply the update.
             conn.execute(text("""
                 UPDATE metadata.metrics
                 SET
-                    available_from = :available_from,
-                    available_to   = :available_to
+                    available_from     = :available_from,
+                    available_to       = :available_to,
+                    country_count      = :country_count,
+                    observation_count  = :observation_count,
+                    missing_value_rate = :missing_value_rate
                 WHERE metric_id = :metric_id
             """), {
-                'metric_id':     metric_id,
-                'available_from': av_from,
-                'available_to':   av_to,
+                'metric_id':          metric_id,
+                'available_from':     new['available_from'],
+                'available_to':       new['available_to'],
+                'country_count':      new['country_count'],
+                'observation_count':  new['observation_count'],
+                'missing_value_rate': new['missing_value_rate'],
             })
             updated += 1
 
         conn.commit()
 
-        # ── Step 4: Summary ────────────────────────────────────
-        print(f"\n  ✓ Updated:   {updated} metrics")
-        print(f"  → Unchanged: {unchanged} metrics (coverage same)")
-        print(f"  → No data:   {no_data} metrics (no observations yet)")
+        # ── Step 4: Print summary ──────────────────────────────
+        print(f"\n  Updated:   {updated} metrics")
+        print(f"  Unchanged: {unchanged} metrics")
+        print(f"  No data:   {no_data} metrics (not yet ingested)")
 
-        # Show coverage summary for the updated metrics.
         if updated > 0:
-            summary = pd.read_sql(text("""
+            summary = conn.execute(text("""
                 SELECT
                     source_id,
-                    COUNT(*)                                    AS metrics,
-                    MIN(available_from)                         AS earliest_year,
-                    MAX(available_to)                           AS latest_year,
-                    COUNT(*) FILTER (WHERE available_from IS NULL) AS missing_coverage
+                    COUNT(*)                          AS metrics,
+                    MIN(available_from)               AS first_year,
+                    MAX(available_to)                 AS last_year,
+                    ROUND(AVG(country_count), 0)::INT AS avg_countries,
+                    ROUND(AVG(missing_value_rate), 2) AS avg_missing_pct,
+                    SUM(observation_count)            AS total_observations
                 FROM metadata.metrics
                 WHERE available_from IS NOT NULL
                 GROUP BY source_id
                 ORDER BY source_id
-            """), conn)
+            """)).fetchall()
 
             print("\n  Coverage by source:")
-            print(summary.to_string(index=False))
+            print(
+                f"  {'source':<15} {'metrics':>7} {'years':>13} "
+                f"{'avg_countries':>13} {'missing%':>9} {'total_obs':>12}"
+            )
+            print("  " + "─" * 73)
+            for row in summary:
+                src, metrics, first, last, avg_c, avg_m, total_obs = row
+                print(
+                    f"  {str(src):<15} {metrics:>7} "
+                    f"{str(first)+'-'+str(last):>13} "
+                    f"{str(avg_c) if avg_c else '-':>13} "
+                    f"{str(avg_m) if avg_m else '-':>9} "
+                    f"{str(total_obs) if total_obs else '-':>12}"
+                )
 
     print("\n✓ Coverage calculation complete.")
 
@@ -217,9 +274,11 @@ def calculate_coverage(source_id: str = None):
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Calculate and update available_from / available_to "
-            "in metadata.metrics from actual data in "
-            "standardized.observations."
+            "Compute and store coverage statistics "
+            "(year range, country count, missing value rate, "
+            "observation count) in metadata.metrics. "
+            "Run automatically after each source flow completes, "
+            "or manually after ad-hoc backfills."
         )
     )
     parser.add_argument(
@@ -227,11 +286,10 @@ def main():
         required = False,
         default  = None,
         help     = (
-            "Source id to calculate coverage for. "
-            "If not provided, all sources are updated."
+            "source_id to update (e.g. world_bank). "
+            "If omitted, all sources are updated."
         ),
     )
-
     args = parser.parse_args()
     calculate_coverage(source_id=args.source)
 

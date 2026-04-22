@@ -224,3 +224,241 @@ Country codes per source:
        pwt                 185
    wipo_ip                 218
 world_bank                 220
+
+
+
+
+
+
+
+
+ChloeTabourian@MacBook-Pro-2 MSBA-DP-Project % python3 -m database.run_seeds   
+============================================================
+RUNNING ALL SEED SCRIPTS
+============================================================
+
+[1/5] Populating metadata.sources (7 sources)
+------------------------------------------------------------
+Seeding metadata.sources...
+✓ Upserted 7 sources into metadata.sources
+
+Current metadata.sources:
+ source_id                                     full_name       access_method
+       imf              International Monetary Fund Data            REST API
+ oecd_msti   OECD Main Science and Technology Indicators            REST API
+  openalex              OpenAlex AI Publications Dataset            REST API
+    oxford Oxford Insights Government AI Readiness Index       XLSX download
+       pwt                             Penn World Tables Stata file download
+   wipo_ip   WIPO IP Statistics — AI Patent Applications       bulk download
+world_bank       World Bank World Development Indicators            REST API
+
+✓ seed_sources.py completed in 25.0s
+
+[2/5] Populating metadata.countries (~266 countries)
+------------------------------------------------------------
+Fetching countries from World Bank API...
+  Raw columns from wbgapi: ['id', 'name', 'aggregate', 'longitude', 'latitude', 'region', 'adminregion', 'lendingType', 'incomeLevel', 'capitalCity']
+  Column mapping: {'id': 'iso3', 'name': 'country_name', 'region': 'region', 'incomeLevel': 'income_group'}
+  Found 217 countries after excluding aggregates
+  ✓ All countries have continent mapping
+  Edge cases with notes: 4 (expected 5 or fewer)
+Upserting into metadata.countries...
+✓ Upserted 217 countries into metadata.countries
+
+Summary:
+ total_countries  regions  continents  income_groups  missing_continent  countries_with_notes
+             220        9           6              7                  0                     7
+
+Countries with notes (7):
+iso3         country_name                                                                                   notes
+ AIA             Anguilla                                                                       British territory
+ HKG Hong Kong SAR, China                           Hong Kong SAR, China — listed separately from mainland China.
+ MAC     Macao SAR, China                               Macao SAR, China — listed separately from mainland China.
+ MSR           Montserrat                                                                       British territory
+ PSE   West Bank and Gaza                                 Palestine — listed as West Bank and Gaza by World Bank.
+ TWN               Taiwan                                                                          Not in WB list
+ XKX               Kosovo Kosovo — informal ISO code XKX used by World Bank. Not officially assigned by ISO 3166.
+
+✓ seed_countries.py completed in 78.2s
+
+[3/5] Populating metadata.metrics (all sources)
+------------------------------------------------------------
+Seeding metadata.metrics...
+==================================================
+
+── World Bank ──
+  Fetching: Economy & Growth (ID: 1)...
+    ✓ Economy & Growth: 49 indicators
+  Fetching: Financial Sector (ID: 2)...
+    ✓ Financial Sector: 77 indicators
+  Fetching: Education (ID: 4)...
+    ✓ Education: 41 indicators
+  Fetching: Energy & Mining (ID: 5)...
+    ✓ Energy & Mining: 53 indicators
+  Fetching: Infrastructure (ID: 9)...
+    ✓ Infrastructure: 78 indicators
+  Fetching: Science & Technology (ID: 14)...
+    ✓ Science & Technology: 13 indicators
+  Fetching: Trade (ID: 21)...
+    ✓ Trade: 155 indicators
+  ✓ Upserted 466 World Bank metrics
+
+── IMF ──
+  ✓ Upserted 132 IMF metrics
+
+── Penn World Tables ──
+  ✓ Upserted 47 PWT metrics
+
+── Oxford Insights ──
+  ✓ Upserted 1 Oxford metric: oxford.ai_readiness
+
+── OpenAlex ──
+  ✓ Upserted 1 OpenAlex metric: openalex.ai_publication_count
+
+── WIPO IP ──
+  ✓ Upserted 1 WIPO IP metric: wipo.ai_patent_count
+
+── OECD MSTI ──
+  ✓ Upserted 3 OECD MSTI metrics
+
+==================================================
+
+Metrics per source:
+ source_id  metric_count
+       imf           132
+ oecd_msti             3
+  openalex             1
+    oxford             1
+       pwt            47
+   wipo_ip             1
+world_bank           439
+
+Total metrics: 624
+
+✓ seed_metrics.py completed in 298.5s
+
+[4/5] Populating metadata.country_codes (crosswalk)
+------------------------------------------------------------
+Seeding metadata.country_codes...
+==================================================
+Loaded 220 countries from metadata.countries
+
+── World Bank country codes ──
+  ✓ Processed 220 World Bank country codes
+
+── IMF country codes ──
+  ⚠ Skipping code mapping change for XKX (imf): stored='KOS', incoming='UVK'. Use drift detection to review this change.
+  ✓ Processed 220 IMF country codes
+  ⚠ 19 IMF codes unmatched:
+    - COK: Cook Islands
+    - ESH: Western Sahara
+    - FLK: Falkland Islands
+    - GLP: Guadeloupe
+    - GUF: French Guiana
+    ... and 14 more
+
+── PWT country codes ──
+  ✓ Processed 185 PWT country codes (read from data/raw/pwt/pwt110.dta)
+
+── Oxford country codes ──
+    ✓ oxford_2019.xlsx: 194 unique country names
+    ✓ oxford_2020.xlsx: 172 unique country names
+    ✓ oxford_2021.xlsx: 160 unique country names
+    ✓ oxford_2022.xlsx: 181 unique country names
+    ✓ oxford_2023.xlsx: 193 unique country names
+    ✓ oxford_2024.xlsx: 188 unique country names
+    ✓ oxford_2025.xlsx: 195 unique country names
+  Found 215 unique country names across all editions
+  ✓ Processed 215 Oxford country codes (215 high confidence, 0 medium confidence)
+
+── OpenAlex country codes ──
+  ✓ Processed 218 OpenAlex country codes
+  ⚠ 2 countries have no ISO2 mapping
+
+── WIPO IP country codes ── (uses ISO2)
+  ✓ Processed 218 WIPO IP country codes (ISO2)
+  ⚠ 2 countries have no ISO2 mapping
+
+── OECD MSTI country codes ──
+  ✓ Processed 220 OECD MSTI country codes
+
+[5/5] Populating metadata.metric_codes
+------------------------------------------------------------
+  Seeding metadata.metric_codes...
+==================================================
+
+── World Bank metric codes ──
+    ✓ topic 1: 49 codes
+    ✓ topic 2: 77 codes
+    ✓ topic 4: 41 codes
+    ✓ topic 5: 53 codes
+    ✓ topic 9: 78 codes
+    ✓ topic 14: 13 codes
+    ✓ topic 21: 155 codes
+  ✓ Processed 466 World Bank metric codes
+
+── IMF metric codes ──
+  ✓ Processed 132 IMF metric codes
+
+── PWT metric codes ──
+  ✓ Processed 47 PWT metric codes
+
+── Oxford metric codes ──
+  ✓ Processed 1 Oxford metric code
+
+── OpenAlex metric codes ──
+  ✓ Processed 1 OpenAlex metric code
+
+── WIPO IP metric codes ──
+  ✓ Processed 1 WIPO IP metric code
+
+── OECD MSTI metric codes ──
+  ✓ Processed 3 OECD MSTI metric codes
+
+==================================================
+
+Metric codes per source:
+ source_id  metric_code_count
+       imf                132
+ oecd_msti                  3
+  openalex                  1
+    oxford                  1
+       pwt                 47
+   wipo_ip                  1
+world_bank                439
+
+Total metric codes: 624
+
+============================================================
+SEED INTEGRITY VALIDATION
+============================================================
+
+  ✓  metadata.sources: 7 rows
+  ✓  metadata.countries: 220 rows
+  ✓  metadata.metrics: 624 rows
+  ✓  metadata.country_codes: 1495 rows
+  ✓  metadata.metric_codes: 624 rows
+  ✓  All 7 required sources present
+  ✓  metadata.countries: no NULL country_name
+  ✓  metadata.countries: all countries have continent
+  ✓  metadata.countries: all continent values valid
+  ✓  metadata.country_codes: all iso3 → countries FK valid
+  ✓  metadata.country_codes: all source_id → sources FK valid
+  ✓  metadata.metric_codes: all metric_id → metrics FK valid
+  ✓  metadata.metric_codes: all source_id → sources FK valid
+  ✓  metadata.metrics: all source_id → sources FK valid
+  ✓  metadata.country_codes: all sources have entries (imf:219, oecd_msti:220, openalex:218, oxford:215, pwt:185, wipo_ip:218, world_bank:220)
+  ✓  metadata.metric_codes: all sources have entries (imf:132, oecd_msti:3, openalex:1, oxford:1, pwt:47, wipo_ip:1, world_bank:439)
+  ✓  metadata.country_codes: no duplicate (source_id, code)
+  ✓  metadata.metric_codes: no duplicate (source_id, code)
+  ✓  metadata.sources: all last_retrieved are NULL (fresh seed)
+  ✓  metadata.metrics: all coverage fields NULL (not yet calculated — correct after fresh seed)
+  ✓  metadata.metrics: all frequency values valid
+  ✓  metadata.metrics: no NULL metric_name
+  ✓  metadata.metrics: unit check complete
+
+────────────────────────────────────────────────────────────
+WARNINGS (1) — pipeline can run but review these:
+  ⚠  [INCOME GROUP] Unexpected income_group values: {'LMC', 'HIC', 'UMC', 'INX', 'LIC'}. Verify World Bank API response.
+
+✓ All seed validation checks passed. Pipeline is ready to run.

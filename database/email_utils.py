@@ -109,29 +109,41 @@ def send_email(subject: str, body: str) -> None:
 
 def send_critical_alert(source_id: str, run_id: int,
                         error_text: str,
-                        pipeline_stage: str) -> None:
+                        stage: str = 'pipeline') -> None:
     """
     Send an immediate CRITICAL alert email to the team.
-    Called by base_ingestor.py and base_transformer.py when
-    a CRITICAL quality check fails or an unexpected crash occurs.
+    Called by flow on_failure hooks (after all retries exhausted)
+    and by base_transformer.py on CRITICAL quality check failures.
 
     last_retrieved is NOT updated on CRITICAL failures so the
     team knows the next scheduled run will retry the full window.
 
+    WHY stage DEFAULTS TO 'pipeline':
+        Flow-level on_failure hooks do not always know which
+        pipeline stage failed — they see a task failure, not a
+        stage name. Defaulting to 'pipeline' produces a readable
+        subject line without requiring callers to pass the stage
+        explicitly. base_transformer.py passes stage='transformation'
+        for precision; flow hooks omit it.
+
     Args:
-        source_id:      Which source failed.
-        run_id:         ops.pipeline_runs.run_id for this run.
-        error_text:     Full error message or traceback.
-        pipeline_stage: 'ingestion' or 'transformation'.
+        source_id:  Which source failed.
+        run_id:     ops.pipeline_runs.run_id for this run.
+                    None when called from a flow hook (no run_id
+                    available at that level).
+        error_text: Full error message or traceback.
+        stage:      Pipeline stage label for the email subject.
+                    Examples: 'ingestion', 'transformation',
+                    'pipeline'. Defaults to 'pipeline'.
     """
     send_email(
         subject=(
-            f"[CRITICAL] {source_id} {pipeline_stage} failed "
+            f"[CRITICAL] {source_id} {stage} failed "
             f"— action required"
         ),
         body=(
             f"A CRITICAL failure occurred in the {source_id} "
-            f"{pipeline_stage} pipeline.\n\n"
+            f"{stage} pipeline.\n\n"
             f"last_retrieved has NOT been updated.\n"
             f"The next scheduled run will retry the full window.\n\n"
             f"{'─' * 60}\n"
