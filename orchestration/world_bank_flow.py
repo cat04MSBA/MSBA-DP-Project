@@ -80,7 +80,7 @@ def world_bank_coverage_task():
 @flow(
     name            = "world-bank-flow",
     description     = "Ingestion, transformation, and coverage update for World Bank WDI.",
-    timeout_seconds = 7200,
+    timeout_seconds = 36000,  # 10 hours — World Bank has 439 metrics, overnight run expected on Session Pooler
 )
 def world_bank_flow():
     logger = get_run_logger()

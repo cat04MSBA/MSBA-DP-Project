@@ -163,7 +163,7 @@ def get_completed_batches(conn, run_id: int,
                           source_id: str, stage: str) -> set:
     """
     Return the set of batch_units that completed successfully
-    for this run, source, and stage.
+    for this source and stage within the last 10 days.
 
     Used by restart logic in base_ingestor.py and
     base_transformer.py to determine which batches to skip
@@ -174,6 +174,19 @@ def get_completed_batches(conn, run_id: int,
         Set lookup is O(1). List lookup is O(n) across potentially
         thousands of batch units per run.
 
+    WHY FILTER BY source_id NOT run_id:
+        When a flow times out or crashes, the next run gets a new
+        run_id. Filtering by run_id means the new run sees zero
+        completed batches and starts from scratch — defeating the
+        entire purpose of checkpointing. Filtering by source_id
+        instead finds all completed batches for this source within
+        the 10-day window, regardless of which run completed them.
+        This correctly skips already-done batches even across
+        run_id boundaries caused by timeouts or crashes.
+
+        The run_id parameter is kept for API consistency and future
+        use (e.g. audit logging) but is not used in the query.
+
     WHY FILTER TO 10 DAYS:
         Checkpoints older than 10 days are irrelevant for restart.
         Filtering prevents stale checkpoints from a much older
@@ -181,7 +194,7 @@ def get_completed_batches(conn, run_id: int,
 
     Args:
         conn:      Open SQLAlchemy connection.
-        run_id:    ops.pipeline_runs.run_id for this run.
+        run_id:    Current run_id (kept for API consistency).
         source_id: Source being processed.
         stage:     Pipeline stage to check.
 
@@ -189,15 +202,13 @@ def get_completed_batches(conn, run_id: int,
         Set of batch_unit strings with status='complete'.
     """
     rows = conn.execute(text("""
-        SELECT batch_unit
+        SELECT DISTINCT batch_unit
         FROM ops.checkpoints
-        WHERE run_id    = :run_id
-          AND source_id = :source_id
+        WHERE source_id = :source_id
           AND stage     = :stage
           AND status    = 'complete'
           AND checkpointed_at >= NOW() - INTERVAL '10 days'
     """), {
-        'run_id':    run_id,
         'source_id': source_id,
         'stage':     stage,
     }).fetchall()

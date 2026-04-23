@@ -557,3 +557,377 @@ See https://docs.prefect.io/v3/concepts/server#how-to-guides for more informatio
 12:19:27.254 | INFO    | Task run 'imf-ingestion-4e7' - Finished in state Completed()
 12:19:27.257 | INFO    | Task run 'imf-transformation-809' - Starting IMF transformation
   [first run] Skipping revision detection and read-back — no existing rows.
+  [start] AI_PI
+    [parse] Dropped 13 rows with unmappable IMF country codes (aggregates expected)
+  [done]  AI_PI — 165 rows
+  [start] BCA
+    [parse] Dropped 1582 rows with unmappable IMF country codes (aggregates expected)
+  [done]  BCA — 1906 rows
+  [start] BCA_GDP
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  BCA_GDP — 308 rows
+  [start] BCA_NGDPD
+    [parse] Dropped 1582 rows with unmappable IMF country codes (aggregates expected)
+  [done]  BCA_NGDPD — 1911 rows
+  [start] BFD_GDP
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  BFD_GDP — 308 rows
+  [start] BM_GDP
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  BM_GDP — 306 rows
+  [start] BRASS_MI
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  BRASS_MI — 208 rows
+  [start] BT_GDP
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  BT_GDP — 306 rows
+  [start] BX_GDP
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  BX_GDP — 306 rows
+  [start] CG_DEBT_GDP
+  [done]  CG_DEBT_GDP — 651 rows
+  [start] DEBT1
+    [parse] Dropped 487 rows with unmappable IMF country codes (aggregates expected)
+  [done]  DEBT1 — 0 rows
+  [start] DG_GDP
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  DG_GDP — 306 rows
+  [start] DI
+    [parse] Dropped 13 rows with unmappable IMF country codes (aggregates expected)
+  [done]  DI — 173 rows
+  [start] DebtA
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  DebtA — 0 rows
+  [start] DebtForg
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  DebtForg — 0 rows
+  [start] DebtL
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  DebtL — 0 rows
+  [start] Deriv
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  Deriv — 0 rows
+  [start] DirectAbroad
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  DirectAbroad — 0 rows
+  [start] DirectIn
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  DirectIn — 0 rows
+  [start] ENEER
+    [parse] Dropped 472 rows with unmappable IMF country codes (aggregates expected)
+  [done]  ENEER — 210 rows
+  [start] EREER
+    [parse] Dropped 472 rows with unmappable IMF country codes (aggregates expected)
+  [done]  EREER — 210 rows
+  [start] EquityA
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  EquityA — 0 rows
+  [start] EquityL
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  EquityL — 0 rows
+  [start] FC_dummy
+    [parse] Dropped 200 rows with unmappable IMF country codes (aggregates expected)
+  [done]  FC_dummy — 206 rows
+  [start] FDSAOP_GDP
+    [parse] Dropped 484 rows with unmappable IMF country codes (aggregates expected)
+  [done]  FDSAOP_GDP — 220 rows
+  [start] FDSAOP_PCH
+    [parse] Dropped 484 rows with unmappable IMF country codes (aggregates expected)
+  [done]  FDSAOP_PCH — 220 rows
+  [start] FMB_GDP
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  FMB_GDP — 308 rows
+  [start] FMB_PCH
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  FMB_PCH — 308 rows
+  [start] FM_ka
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  FM_ka — 0 rows
+  [start] FR_ind
+    [parse] Dropped 240 rows with unmappable IMF country codes (aggregates expected)
+  [done]  FR_ind — 492 rows
+  [start] GDI_TC
+    [parse] Dropped 312 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GDI_TC — 0 rows
+  [start] GDP
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GDP — 0 rows
+  [start] GGCBP_G01_PGDP_PT
+    [parse] Dropped 380 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GGCBP_G01_PGDP_PT — 792 rows
+  [start] GGCB_G01_PGDP_PT
+    [parse] Dropped 380 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GGCB_G01_PGDP_PT — 812 rows
+  [start] GGRXG_GDP
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GGRXG_GDP — 308 rows
+  [start] GGR_G01_GDP_PT
+    [parse] Dropped 631 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GGR_G01_GDP_PT — 1920 rows
+  [start] GGXCNLXG_GDP
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GGXCNLXG_GDP — 308 rows
+  [start] GGXCNL_G01_GDP_PT
+    [parse] Dropped 629 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GGXCNL_G01_GDP_PT — 1910 rows
+  [start] GGXCNL_GDP
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GGXCNL_GDP — 308 rows
+  [start] GGXCNL_NGDP
+    [parse] Dropped 1134 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GGXCNL_NGDP — 1914 rows
+  [start] GGXONLB_G01_GDP_PT
+    [parse] Dropped 619 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GGXONLB_G01_GDP_PT — 1831 rows
+  [start] GGXWDG_GDP
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GGXWDG_GDP — 306 rows
+  [start] GGXWDG_NGDP
+    [parse] Dropped 1069 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GGXWDG_NGDP — 1879 rows
+  [start] GGXWDN_G01_GDP_PT
+    [parse] Dropped 419 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GGXWDN_G01_GDP_PT — 826 rows
+  [start] GGX_GDP
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GGX_GDP — 308 rows
+  [start] GG_DEBT_GDP
+  [done]  GG_DEBT_GDP — 352 rows
+  [start] GII_TC
+    [parse] Dropped 312 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GII_TC — 0 rows
+  [start] GRB_dummy
+    [parse] Dropped 99 rows with unmappable IMF country codes (aggregates expected)
+  [done]  GRB_dummy — 0 rows
+  [start] G_XWDG_G01_GDP_PT
+    [parse] Dropped 577 rows with unmappable IMF country codes (aggregates expected)
+  [done]  G_XWDG_G01_GDP_PT — 1865 rows
+  [start] G_X_G01_GDP_PT
+    [parse] Dropped 630 rows with unmappable IMF country codes (aggregates expected)
+  [done]  G_X_G01_GDP_PT — 1910 rows
+  [start] HCLMP
+    [parse] Dropped 13 rows with unmappable IMF country codes (aggregates expected)
+  [done]  HCLMP — 173 rows
+  [start] HH_ALL
+  [done]  HH_ALL — 161 rows
+  [start] HH_LS
+  [done]  HH_LS — 313 rows
+  [start] IEI
+    [parse] Dropped 13 rows with unmappable IMF country codes (aggregates expected)
+  [done]  IEI — 167 rows
+  [start] Ka_bo
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  Ka_bo — 0 rows
+  [start] Ka_cc
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  Ka_cc — 0 rows
+  [start] Ka_ci
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  Ka_ci — 0 rows
+  [start] Ka_di
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  Ka_di — 0 rows
+  [start] Ka_dr
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  Ka_dr — 0 rows
+  [start] Ka_eq
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  Ka_eq — 0 rows
+  [start] Ka_fc
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  Ka_fc — 0 rows
+  [start] Ka_gu
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  Ka_gu — 0 rows
+  [start] Ka_mm
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  Ka_mm — 0 rows
+  [start] LP
+    [parse] Dropped 1664 rows with unmappable IMF country codes (aggregates expected)
+  [done]  LP — 1922 rows
+  [start] LUR
+    [parse] Dropped 197 rows with unmappable IMF country codes (aggregates expected)
+  [done]  LUR — 1059 rows
+  [start] NFC_ALL
+  [done]  NFC_ALL — 161 rows
+  [start] NFC_LS
+  [done]  NFC_LS — 313 rows
+  [start] NFPS_DEBT_GDP
+  [done]  NFPS_DEBT_GDP — 53 rows
+  [start] NGDPD
+    [parse] Dropped 1653 rows with unmappable IMF country codes (aggregates expected)
+  [done]  NGDPD — 1916 rows
+  [start] NGDPDPC
+    [parse] Dropped 1612 rows with unmappable IMF country codes (aggregates expected)
+  [done]  NGDPDPC — 1916 rows
+  [start] NGDPRPC_PCH
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  NGDPRPC_PCH — 308 rows
+  [start] NGDPXO_RPCH
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  NGDPXO_RPCH — 301 rows
+  [start] NGDP_RPCH
+    [parse] Dropped 1605 rows with unmappable IMF country codes (aggregates expected)
+  [done]  NGDP_RPCH — 1921 rows
+  [start] NGDP_R_PCH
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  NGDP_R_PCH — 308 rows
+  [start] NGS_GDP
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  NGS_GDP — 294 rows
+  [start] NI_GDP
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  NI_GDP — 294 rows
+  [start] Nonres_ka
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  Nonres_ka — 0 rows
+  [start] OtherA
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  OtherA — 0 rows
+  [start] OtherGov
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  OtherGov — 0 rows
+  [start] OtherL
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  OtherL — 0 rows
+  [start] PCPIEPCH
+    [parse] Dropped 1378 rows with unmappable IMF country codes (aggregates expected)
+  [done]  PCPIEPCH — 1912 rows
+  [start] PCPIE_PCH
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  PCPIE_PCH — 308 rows
+  [start] PCPIPCH
+    [parse] Dropped 1555 rows with unmappable IMF country codes (aggregates expected)
+  [done]  PCPIPCH — 1922 rows
+  [start] PCPI_PCH
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  PCPI_PCH — 308 rows
+  [start] PPPEX
+  [done]  PPPEX — 1921 rows
+  [start] PPPGDP
+    [parse] Dropped 1576 rows with unmappable IMF country codes (aggregates expected)
+  [done]  PPPGDP — 1921 rows
+  [start] PPPPC
+    [parse] Dropped 1612 rows with unmappable IMF country codes (aggregates expected)
+  [done]  PPPPC — 1921 rows
+  [start] PPPSH
+    [parse] Dropped 1576 rows with unmappable IMF country codes (aggregates expected)
+  [done]  PPPSH — 1921 rows
+  [start] PS_DEBT_GDP
+  [done]  PS_DEBT_GDP — 54 rows
+  [start] PVD_LS
+  [done]  PVD_LS — 569 rows
+  [start] Portfa
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  Portfa — 0 rows
+  [start] Portfl
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  Portfl — 0 rows
+  [start] PrivInexDI
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  PrivInexDI — 0 rows
+  [start] PrivInexDIGDP
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  PrivInexDIGDP — 0 rows
+  [start] PrivOutexDI
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  PrivOutexDI — 0 rows
+  [start] PrivOutexDIGDP
+    [parse] Dropped 40 rows with unmappable IMF country codes (aggregates expected)
+  [done]  PrivOutexDIGDP — 0 rows
+  [start] Privatedebt_all
+  [done]  Privatedebt_all — 161 rows
+  [start] RE
+    [parse] Dropped 13 rows with unmappable IMF country codes (aggregates expected)
+  [done]  RE — 174 rows
+  [start] Res_ka
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  Res_ka — 0 rows
+  [start] Reserves_ARA
+  [done]  Reserves_ARA — 307 rows
+  [start] Reserves_M
+  [done]  Reserves_M — 355 rows
+  [start] Reserves_M2
+  [done]  Reserves_M2 — 356 rows
+  [start] Reserves_STD
+  [done]  Reserves_STD — 309 rows
+  [start] SITC1_0
+    [parse] Dropped 1738 rows with unmappable IMF country codes (aggregates expected)
+  [done]  SITC1_0 — 0 rows
+  [start] SITC1_1
+    [parse] Dropped 1726 rows with unmappable IMF country codes (aggregates expected)
+  [done]  SITC1_1 — 0 rows
+  [start] SITC1_2
+    [parse] Dropped 1738 rows with unmappable IMF country codes (aggregates expected)
+  [done]  SITC1_2 — 0 rows
+  [start] SITC1_3
+    [parse] Dropped 1690 rows with unmappable IMF country codes (aggregates expected)
+  [done]  SITC1_3 — 0 rows
+  [start] SITC1_4
+    [parse] Dropped 1733 rows with unmappable IMF country codes (aggregates expected)
+  [done]  SITC1_4 — 0 rows
+  [start] SITC1_5
+    [parse] Dropped 1723 rows with unmappable IMF country codes (aggregates expected)
+  [done]  SITC1_5 — 0 rows
+  [start] SITC1_6
+    [parse] Dropped 1731 rows with unmappable IMF country codes (aggregates expected)
+  [done]  SITC1_6 — 0 rows
+  [start] SITC1_7
+    [parse] Dropped 1733 rows with unmappable IMF country codes (aggregates expected)
+  [done]  SITC1_7 — 0 rows
+  [start] SITC1_8
+    [parse] Dropped 1728 rows with unmappable IMF country codes (aggregates expected)
+  [done]  SITC1_8 — 0 rows
+  [start] SITC1_9
+    [parse] Dropped 1718 rows with unmappable IMF country codes (aggregates expected)
+  [done]  SITC1_9 — 0 rows
+  [start] SITC1_total
+    [parse] Dropped 1738 rows with unmappable IMF country codes (aggregates expected)
+  [done]  SITC1_total — 0 rows
+  [start] TTT
+    [parse] Dropped 528 rows with unmappable IMF country codes (aggregates expected)
+  [done]  TTT — 301 rows
+  [start] d
+  [done]  d — 603 rows
+  [start] exp
+  [done]  exp — 604 rows
+  [start] extensive
+    [parse] Dropped 1824 rows with unmappable IMF country codes (aggregates expected)
+  [done]  extensive — 0 rows
+  [start] ie
+  [done]  ie — 604 rows
+  [start] intensive
+    [parse] Dropped 1824 rows with unmappable IMF country codes (aggregates expected)
+  [done]  intensive — 0 rows
+  [start] ka_in
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  ka_in — 0 rows
+  [start] ka_ldi
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  ka_ldi — 0 rows
+  [start] ka_new
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  ka_new — 0 rows
+  [start] ka_out
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  ka_out — 0 rows
+  [start] ka_pct
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  ka_pct — 0 rows
+  [start] ka_ret
+    [parse] Dropped 42 rows with unmappable IMF country codes (aggregates expected)
+  [done]  ka_ret — 0 rows
+  [start] pb
+  [done]  pb — 604 rows
+  [start] prim_exp
+  [done]  prim_exp — 604 rows
+  [start] rev
+  [done]  rev — 604 rows
+  [start] rgc
+  [done]  rgc — 604 rows
+  [start] rltir
+  [done]  rltir — 213 rows
+  [start] total_theil
+    [parse] Dropped 1824 rows with unmappable IMF country codes (aggregates expected)
+  [done]  total_theil — 0 rows
+✓ imf transformation complete. Inserted: 2025, Rejected: 0

@@ -70,7 +70,7 @@ def imf_coverage_task():
 @flow(
     name            = "imf-flow",
     description     = "Ingestion, transformation, and coverage update for IMF.",
-    timeout_seconds = 14400,
+    timeout_seconds = 28800,  # 8 hours — needed on Session Pooler (IPv4 networks)
 )
 def imf_flow():
     logger = get_run_logger()
