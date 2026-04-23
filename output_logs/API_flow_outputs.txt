@@ -931,3 +931,22 @@ See https://docs.prefect.io/v3/concepts/server#how-to-guides for more informatio
     [parse] Dropped 1824 rows with unmappable IMF country codes (aggregates expected)
   [done]  total_theil — 0 rows
 ✓ imf transformation complete. Inserted: 2025, Rejected: 0
+=======================================================
+Calculating metric coverage...
+  Source: imf
+=======================================================
+  132 metrics to update
+  Coverage data found for 78 metrics
+
+  Updated:   78 metrics
+  Unchanged: 0 metrics
+  No data:   54 metrics (not yet ingested)
+
+  Coverage by source:
+  source          metrics         years avg_countries  missing%    total_obs
+  ─────────────────────────────────────────────────────────────────────────
+  imf                  78     2021-2030           107         -        57317
+  oecd_msti             3     2021-2025            43         -          482
+  openalex              1     1990-2026           213         -         6475
+
+

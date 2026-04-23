@@ -189,9 +189,10 @@ def get_wipo_year_range(file_path: Path) -> tuple:
     try:
         df = pd.read_csv(
             file_path,
-            skiprows  = WIPO_HEADER_ROWS,
+            skiprows  = 6,          # matches WIPO_HEADER_ROWS in wipo_ingest.py
             dtype     = str,
-            nrows     = 1,      # only need headers — read one row
+            nrows     = 1,
+            index_col = False,      # trailing comma fix — same as wipo_ingest.py
         )
         year_cols = sorted([
             col for col in df.columns

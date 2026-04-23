@@ -80,6 +80,7 @@ Calculating metric coverage...
 
 python3 -m database.upload_to_b2 --source oxford --file data/raw/oxford/oxford_2020.xlsx --year 2020
 
+
 Reading oxford_2020.xlsx...
   File size: 0.1 MB
   B2 destination: bronze/oxford/oxford_2020_2026-04-23.xlsx
@@ -95,25 +96,25 @@ File uploaded. Triggering oxford pipeline...
 
 
 Triggering oxford flow...
-18:28:55.274 | INFO    | prefect - Starting temporary server on http://127.0.0.1:8770
+18:44:49.704 | INFO    | prefect - Starting temporary server on http://127.0.0.1:8401
 See https://docs.prefect.io/v3/concepts/server#how-to-guides for more information on running a dedicated Prefect server.
-18:28:58.489 | INFO    | Flow run 'translucent-ferret' - Beginning flow run 'translucent-ferret' for flow 'oxford-flow'
-18:28:58.491 | INFO    | Flow run 'translucent-ferret' - oxford_flow started
-18:28:58.514 | INFO    | Task run 'oxford-ingestion-77a' - Starting Oxford ingestion
+18:44:52.840 | INFO    | Flow run 'glossy-moth' - Beginning flow run 'glossy-moth' for flow 'oxford-flow'
+18:44:52.843 | INFO    | Flow run 'glossy-moth' - oxford_flow started
+18:44:52.866 | INFO    | Task run 'oxford-ingestion-df4' - Starting Oxford ingestion
   Found 2 Oxford files on B2. 1 already ingested. 1 to process: ['2020']
   [start] 2020
   [done]  2020 — 172 rows
 ✓ oxford ingestion complete. Inserted: 172, Rejected: 0, Parked: 0 metric(s)
-18:29:13.731 | INFO    | Task run 'oxford-ingestion-77a' - Oxford ingestion complete
-18:29:13.733 | INFO    | Task run 'oxford-ingestion-77a' - Finished in state Completed()
-18:29:13.736 | INFO    | Task run 'oxford-transformation-e8b' - Starting Oxford transformation
+18:45:07.242 | INFO    | Task run 'oxford-ingestion-df4' - Oxford ingestion complete
+18:45:07.244 | INFO    | Task run 'oxford-ingestion-df4' - Finished in state Completed()
+18:45:07.246 | INFO    | Task run 'oxford-transformation-725' - Starting Oxford transformation
   [skip] 2019 already complete
   [start] 2020
   [done]  2020 — 172 rows
 ✓ oxford transformation complete. Inserted: 172, Rejected: 0
-18:30:01.519 | INFO    | Task run 'oxford-transformation-e8b' - Oxford transformation complete
-18:30:01.521 | INFO    | Task run 'oxford-transformation-e8b' - Finished in state Completed()
-18:30:01.524 | INFO    | Task run 'oxford-coverage-e77' - Updating Oxford coverage statistics
+18:45:54.125 | INFO    | Task run 'oxford-transformation-725' - Oxford transformation complete
+18:45:54.133 | INFO    | Task run 'oxford-transformation-725' - Finished in state Completed()
+18:45:54.137 | INFO    | Task run 'oxford-coverage-5ab' - Updating Oxford coverage statistics
 =======================================================
 Calculating metric coverage...
   Source: oxford
@@ -134,33 +135,457 @@ Calculating metric coverage...
   oxford                1     2019-2020           194         -          366
 
 ✓ Coverage calculation complete.
-18:30:06.572 | INFO    | Task run 'oxford-coverage-e77' - Oxford coverage statistics updated
-18:30:06.577 | INFO    | Task run 'oxford-coverage-e77' - Finished in state Completed()
-18:30:06.578 | INFO    | Flow run 'translucent-ferret' - oxford_flow complete
-18:30:06.756 | INFO    | Flow run 'translucent-ferret' - Finished in state Completed()
+18:45:59.365 | INFO    | Task run 'oxford-coverage-5ab' - Oxford coverage statistics updated
+18:45:59.366 | INFO    | Task run 'oxford-coverage-5ab' - Finished in state Completed()
+18:45:59.367 | INFO    | Flow run 'glossy-moth' - oxford_flow complete
+18:46:00.087 | INFO    | Flow run 'glossy-moth' - Finished in state Completed()
 
 ──────────────────────────────────────────────────
 ✓ oxford pipeline complete.
   Check Prefect UI and Supabase ops.pipeline_runs
   for detailed results.
-18:30:06.763 | INFO    | prefect - Stopping temporary server on http://127.0.0.1:8770
+18:46:00.098 | INFO    | prefect - Stopping temporary server on http://127.0.0.1:8401
+
+
+──────────────────────────────────────────────────
+2021
+──────────────────────────────────────────────────
+python3 -m database.upload_to_b2 --source oxford --file data/raw/oxford/oxford_2021.xlsx --year 2021
+
+Reading oxford_2021.xlsx...
+  File size: 0.0 MB
+  B2 destination: bronze/oxford/oxford_2021_2026-04-23.xlsx
+  Uploaded by:    Chloe Tabourian @ MacBook-Pro-2.local
+
+Uploading to B2...
+✓ Uploaded successfully: bronze/oxford/oxford_2021_2026-04-23.xlsx
+✓ Upload logged to B2: logs/oxford/oxford_2021_uploaded_2026-04-23.json
+
+──────────────────────────────────────────────────
+File uploaded. Triggering oxford pipeline...
+──────────────────────────────────────────────────
+
+
+Triggering oxford flow...
+18:47:45.889 | INFO    | prefect - Starting temporary server on http://127.0.0.1:8334
+See https://docs.prefect.io/v3/concepts/server#how-to-guides for more information on running a dedicated Prefect server.
+18:47:48.889 | INFO    | Flow run 'divergent-tamarin' - Beginning flow run 'divergent-tamarin' for flow 'oxford-flow'
+18:47:48.891 | INFO    | Flow run 'divergent-tamarin' - oxford_flow started
+18:47:48.914 | INFO    | Task run 'oxford-ingestion-18a' - Starting Oxford ingestion
+  Found 3 Oxford files on B2. 2 already ingested. 1 to process: ['2021']
+  [start] 2021
+  [done]  2021 — 160 rows
+✓ oxford ingestion complete. Inserted: 160, Rejected: 0, Parked: 0 metric(s)
+18:48:02.347 | INFO    | Task run 'oxford-ingestion-18a' - Oxford ingestion complete
+18:48:02.348 | INFO    | Task run 'oxford-ingestion-18a' - Finished in state Completed()
+18:48:02.350 | INFO    | Task run 'oxford-transformation-1e0' - Starting Oxford transformation
+  [skip] 2019 already complete
+  [skip] 2020 already complete
+  [start] 2021
+  [done]  2021 — 160 rows
+✓ oxford transformation complete. Inserted: 160, Rejected: 0
+18:48:47.870 | INFO    | Task run 'oxford-transformation-1e0' - Oxford transformation complete
+18:48:47.872 | INFO    | Task run 'oxford-transformation-1e0' - Finished in state Completed()
+18:48:47.874 | INFO    | Task run 'oxford-coverage-1d7' - Updating Oxford coverage statistics
+=======================================================
+Calculating metric coverage...
+  Source: oxford
+=======================================================
+  1 metrics to update
+  Coverage data found for 1 metrics
+
+  Updated:   1 metrics
+  Unchanged: 0 metrics
+  No data:   0 metrics (not yet ingested)
+
+  Coverage by source:
+  source          metrics         years avg_countries  missing%    total_obs
+  ─────────────────────────────────────────────────────────────────────────
+  imf                  78     2021-2030           107         -        57317
+  oecd_msti             3     2021-2025            43         -          482
+  openalex              1     1990-2026           213         -         6475
+  oxford                1     2019-2021           194         -          526
+
+✓ Coverage calculation complete.
+18:48:53.275 | INFO    | Task run 'oxford-coverage-1d7' - Oxford coverage statistics updated
+18:48:53.279 | INFO    | Task run 'oxford-coverage-1d7' - Finished in state Completed()
+18:48:53.280 | INFO    | Flow run 'divergent-tamarin' - oxford_flow complete
+18:48:54.154 | INFO    | Flow run 'divergent-tamarin' - Finished in state Completed()
+
+──────────────────────────────────────────────────
+✓ oxford pipeline complete.
+  Check Prefect UI and Supabase ops.pipeline_runs
+  for detailed results.
+18:48:54.163 | INFO    | prefect - Stopping temporary server on http://127.0.0.1:8334
+
 
 ──────────────────────────────────────────────────
 2022
 ──────────────────────────────────────────────────
 python3 -m database.upload_to_b2 --source oxford --file data/raw/oxford/oxford_2022.xlsx --year 2022
 
+
+Reading oxford_2022.xlsx...
+  File size: 0.0 MB
+  B2 destination: bronze/oxford/oxford_2022_2026-04-23.xlsx
+  Uploaded by:    Chloe Tabourian @ MacBook-Pro-2.local
+
+Uploading to B2...
+✓ Uploaded successfully: bronze/oxford/oxford_2022_2026-04-23.xlsx
+✓ Upload logged to B2: logs/oxford/oxford_2022_uploaded_2026-04-23.json
+
+──────────────────────────────────────────────────
+File uploaded. Triggering oxford pipeline...
+──────────────────────────────────────────────────
+
+
+Triggering oxford flow...
+18:50:03.563 | INFO    | prefect - Starting temporary server on http://127.0.0.1:8154
+See https://docs.prefect.io/v3/concepts/server#how-to-guides for more information on running a dedicated Prefect server.
+18:50:06.818 | INFO    | Flow run 'classy-iguana' - Beginning flow run 'classy-iguana' for flow 'oxford-flow'
+18:50:06.821 | INFO    | Flow run 'classy-iguana' - oxford_flow started
+18:50:06.843 | INFO    | Task run 'oxford-ingestion-972' - Starting Oxford ingestion
+  Found 4 Oxford files on B2. 3 already ingested. 1 to process: ['2022']
+  [start] 2022
+  [done]  2022 — 181 rows
+✓ oxford ingestion complete. Inserted: 181, Rejected: 0, Parked: 0 metric(s)
+18:50:21.494 | INFO    | Task run 'oxford-ingestion-972' - Oxford ingestion complete
+18:50:21.498 | INFO    | Task run 'oxford-ingestion-972' - Finished in state Completed()
+18:50:21.504 | INFO    | Task run 'oxford-transformation-4a6' - Starting Oxford transformation
+  [skip] 2019 already complete
+  [skip] 2020 already complete
+  [skip] 2021 already complete
+  [start] 2022
+  [done]  2022 — 181 rows
+✓ oxford transformation complete. Inserted: 181, Rejected: 0
+18:51:15.128 | INFO    | Task run 'oxford-transformation-4a6' - Oxford transformation complete
+18:51:15.129 | INFO    | Task run 'oxford-transformation-4a6' - Finished in state Completed()
+18:51:15.131 | INFO    | Task run 'oxford-coverage-788' - Updating Oxford coverage statistics
+=======================================================
+Calculating metric coverage...
+  Source: oxford
+=======================================================
+  1 metrics to update
+  Coverage data found for 1 metrics
+
+  Updated:   1 metrics
+  Unchanged: 0 metrics
+  No data:   0 metrics (not yet ingested)
+
+  Coverage by source:
+  source          metrics         years avg_countries  missing%    total_obs
+  ─────────────────────────────────────────────────────────────────────────
+  imf                  78     2021-2030           107         -        57317
+  oecd_msti             3     2021-2025            43         -          482
+  openalex              1     1990-2026           213         -         6475
+  oxford                1     2019-2022           194         -          707
+
+✓ Coverage calculation complete.
+18:51:20.414 | INFO    | Task run 'oxford-coverage-788' - Oxford coverage statistics updated
+18:51:20.418 | INFO    | Task run 'oxford-coverage-788' - Finished in state Completed()
+18:51:20.419 | INFO    | Flow run 'classy-iguana' - oxford_flow complete
+18:51:21.132 | INFO    | Flow run 'classy-iguana' - Finished in state Completed()
+
+──────────────────────────────────────────────────
+✓ oxford pipeline complete.
+  Check Prefect UI and Supabase ops.pipeline_runs
+  for detailed results.
+18:51:21.142 | INFO    | prefect - Stopping temporary server on http://127.0.0.1:8154
+
+
 ──────────────────────────────────────────────────
 2023
 ──────────────────────────────────────────────────
 python3 -m database.upload_to_b2 --source oxford --file data/raw/oxford/oxford_2023.xlsx --year 2023
+
+Reading oxford_2023.xlsx...
+  File size: 0.1 MB
+  B2 destination: bronze/oxford/oxford_2023_2026-04-23.xlsx
+  Uploaded by:    Chloe Tabourian @ MacBook-Pro-2.local
+
+Uploading to B2...
+✓ Uploaded successfully: bronze/oxford/oxford_2023_2026-04-23.xlsx
+✓ Upload logged to B2: logs/oxford/oxford_2023_uploaded_2026-04-23.json
+
+──────────────────────────────────────────────────
+File uploaded. Triggering oxford pipeline...
+──────────────────────────────────────────────────
+
+
+Triggering oxford flow...
+18:55:49.247 | INFO    | prefect - Starting temporary server on http://127.0.0.1:8162
+See https://docs.prefect.io/v3/concepts/server#how-to-guides for more information on running a dedicated Prefect server.
+18:55:52.258 | INFO    | Flow run 'gorgeous-eagle' - Beginning flow run 'gorgeous-eagle' for flow 'oxford-flow'
+18:55:52.261 | INFO    | Flow run 'gorgeous-eagle' - oxford_flow started
+18:55:52.285 | INFO    | Task run 'oxford-ingestion-54e' - Starting Oxford ingestion
+  Found 5 Oxford files on B2. 4 already ingested. 1 to process: ['2023']
+  [start] 2023
+  [done]  2023 — 193 rows
+✓ oxford ingestion complete. Inserted: 193, Rejected: 0, Parked: 0 metric(s)
+18:56:06.273 | INFO    | Task run 'oxford-ingestion-54e' - Oxford ingestion complete
+18:56:06.274 | INFO    | Task run 'oxford-ingestion-54e' - Finished in state Completed()
+18:56:06.276 | INFO    | Task run 'oxford-transformation-b66' - Starting Oxford transformation
+  [skip] 2019 already complete
+  [skip] 2020 already complete
+  [skip] 2021 already complete
+  [skip] 2022 already complete
+  [start] 2023
+  [done]  2023 — 193 rows
+✓ oxford transformation complete. Inserted: 193, Rejected: 0
+18:56:58.672 | INFO    | Task run 'oxford-transformation-b66' - Oxford transformation complete
+18:56:58.674 | INFO    | Task run 'oxford-transformation-b66' - Finished in state Completed()
+18:56:58.676 | INFO    | Task run 'oxford-coverage-c7f' - Updating Oxford coverage statistics
+=======================================================
+Calculating metric coverage...
+  Source: oxford
+=======================================================
+  1 metrics to update
+  Coverage data found for 1 metrics
+
+  Updated:   1 metrics
+  Unchanged: 0 metrics
+  No data:   0 metrics (not yet ingested)
+
+  Coverage by source:
+  source          metrics         years avg_countries  missing%    total_obs
+  ─────────────────────────────────────────────────────────────────────────
+  imf                  78     2021-2030           107         -        57317
+  oecd_msti             3     2021-2025            43         -          482
+  openalex              1     1990-2026           213         -         6475
+  oxford                1     2019-2023           195         -          900
+
+✓ Coverage calculation complete.
+18:57:03.910 | INFO    | Task run 'oxford-coverage-c7f' - Oxford coverage statistics updated
+18:57:03.911 | INFO    | Task run 'oxford-coverage-c7f' - Finished in state Completed()
+18:57:03.912 | INFO    | Flow run 'gorgeous-eagle' - oxford_flow complete
+18:57:04.574 | INFO    | Flow run 'gorgeous-eagle' - Finished in state Completed()
+
+──────────────────────────────────────────────────
+✓ oxford pipeline complete.
+  Check Prefect UI and Supabase ops.pipeline_runs
+  for detailed results.
+18:57:04.584 | INFO    | prefect - Stopping temporary server on http://127.0.0.1:8162
+
 
 ──────────────────────────────────────────────────
 2024
 ──────────────────────────────────────────────────
 python3 -m database.upload_to_b2 --source oxford --file data/raw/oxford/oxford_2024.xlsx --year 2024
 
+
+Reading oxford_2024.xlsx...
+  File size: 0.1 MB
+  B2 destination: bronze/oxford/oxford_2024_2026-04-23.xlsx
+  Uploaded by:    Chloe Tabourian @ MacBook-Pro-2.local
+
+Uploading to B2...
+✓ Uploaded successfully: bronze/oxford/oxford_2024_2026-04-23.xlsx
+✓ Upload logged to B2: logs/oxford/oxford_2024_uploaded_2026-04-23.json
+
+──────────────────────────────────────────────────
+File uploaded. Triggering oxford pipeline...
+──────────────────────────────────────────────────
+
+
+Triggering oxford flow...
+18:59:43.374 | INFO    | prefect - Starting temporary server on http://127.0.0.1:8714
+See https://docs.prefect.io/v3/concepts/server#how-to-guides for more information on running a dedicated Prefect server.
+18:59:46.287 | INFO    | Flow run 'able-cow' - Beginning flow run 'able-cow' for flow 'oxford-flow'
+18:59:46.289 | INFO    | Flow run 'able-cow' - oxford_flow started
+18:59:46.310 | INFO    | Task run 'oxford-ingestion-a67' - Starting Oxford ingestion
+  Found 6 Oxford files on B2. 5 already ingested. 1 to process: ['2024']
+  [start] 2024
+  [done]  2024 — 188 rows
+✓ oxford ingestion complete. Inserted: 188, Rejected: 0, Parked: 0 metric(s)
+18:59:59.912 | INFO    | Task run 'oxford-ingestion-a67' - Oxford ingestion complete
+18:59:59.915 | INFO    | Task run 'oxford-ingestion-a67' - Finished in state Completed()
+18:59:59.916 | INFO    | Task run 'oxford-transformation-883' - Starting Oxford transformation
+  [skip] 2019 already complete
+  [skip] 2020 already complete
+  [skip] 2021 already complete
+  [skip] 2022 already complete
+  [skip] 2023 already complete
+  [start] 2024
+  [done]  2024 — 188 rows
+✓ oxford transformation complete. Inserted: 188, Rejected: 0
+19:00:52.060 | INFO    | Task run 'oxford-transformation-883' - Oxford transformation complete
+19:00:52.061 | INFO    | Task run 'oxford-transformation-883' - Finished in state Completed()
+19:00:52.063 | INFO    | Task run 'oxford-coverage-48d' - Updating Oxford coverage statistics
+=======================================================
+Calculating metric coverage...
+  Source: oxford
+=======================================================
+  1 metrics to update
+  Coverage data found for 1 metrics
+
+  Updated:   1 metrics
+  Unchanged: 0 metrics
+  No data:   0 metrics (not yet ingested)
+
+  Coverage by source:
+  source          metrics         years avg_countries  missing%    total_obs
+  ─────────────────────────────────────────────────────────────────────────
+  imf                  78     2021-2030           107         -        57317
+  oecd_msti             3     2021-2025            43         -          482
+  openalex              1     1990-2026           213         -         6475
+  oxford                1     2019-2024           195         -         1088
+
+✓ Coverage calculation complete.
+19:00:57.425 | INFO    | Task run 'oxford-coverage-48d' - Oxford coverage statistics updated
+19:00:57.429 | INFO    | Task run 'oxford-coverage-48d' - Finished in state Completed()
+19:00:57.429 | INFO    | Flow run 'able-cow' - oxford_flow complete
+19:00:57.594 | INFO    | Flow run 'able-cow' - Finished in state Completed()
+
+──────────────────────────────────────────────────
+✓ oxford pipeline complete.
+  Check Prefect UI and Supabase ops.pipeline_runs
+  for detailed results.
+19:00:57.608 | INFO    | prefect - Stopping temporary server on http://127.0.0.1:8714
+
 ──────────────────────────────────────────────────
 2025
 ──────────────────────────────────────────────────
 python3 -m database.upload_to_b2 --source oxford --file data/raw/oxford/oxford_2025.xlsx --year 2025
+
+Reading oxford_2025.xlsx...
+  File size: 0.2 MB
+  B2 destination: bronze/oxford/oxford_2025_2026-04-23.xlsx
+  Uploaded by:    Chloe Tabourian @ MacBook-Pro-2.local
+
+Uploading to B2...
+✓ Uploaded successfully: bronze/oxford/oxford_2025_2026-04-23.xlsx
+✓ Upload logged to B2: logs/oxford/oxford_2025_uploaded_2026-04-23.json
+
+──────────────────────────────────────────────────
+File uploaded. Triggering oxford pipeline...
+──────────────────────────────────────────────────
+
+
+Triggering oxford flow...
+19:02:29.049 | INFO    | prefect - Starting temporary server on http://127.0.0.1:8266
+See https://docs.prefect.io/v3/concepts/server#how-to-guides for more information on running a dedicated Prefect server.
+19:02:32.060 | INFO    | Flow run 'diamond-starling' - Beginning flow run 'diamond-starling' for flow 'oxford-flow'
+19:02:32.063 | INFO    | Flow run 'diamond-starling' - oxford_flow started
+19:02:32.085 | INFO    | Task run 'oxford-ingestion-67c' - Starting Oxford ingestion
+  Found 7 Oxford files on B2. 6 already ingested. 1 to process: ['2025']
+  [start] 2025
+  [done]  2025 — 195 rows
+✓ oxford ingestion complete. Inserted: 195, Rejected: 0, Parked: 0 metric(s)
+19:02:46.506 | INFO    | Task run 'oxford-ingestion-67c' - Oxford ingestion complete
+19:02:46.507 | INFO    | Task run 'oxford-ingestion-67c' - Finished in state Completed()
+19:02:46.509 | INFO    | Task run 'oxford-transformation-20e' - Starting Oxford transformation
+  [skip] 2019 already complete
+  [skip] 2020 already complete
+  [skip] 2021 already complete
+  [skip] 2022 already complete
+  [skip] 2023 already complete
+  [skip] 2024 already complete
+  [start] 2025
+  [done]  2025 — 195 rows
+✓ oxford transformation complete. Inserted: 195, Rejected: 0
+19:03:37.330 | INFO    | Task run 'oxford-transformation-20e' - Oxford transformation complete
+19:03:37.333 | INFO    | Task run 'oxford-transformation-20e' - Finished in state Completed()
+19:03:37.335 | INFO    | Task run 'oxford-coverage-10e' - Updating Oxford coverage statistics
+=======================================================
+Calculating metric coverage...
+  Source: oxford
+=======================================================
+  1 metrics to update
+  Coverage data found for 1 metrics
+
+  Updated:   1 metrics
+  Unchanged: 0 metrics
+  No data:   0 metrics (not yet ingested)
+
+  Coverage by source:
+  source          metrics         years avg_countries  missing%    total_obs
+  ─────────────────────────────────────────────────────────────────────────
+  imf                  78     2021-2030           107         -        57317
+  oecd_msti             3     2021-2025            43         -          482
+  openalex              1     1990-2026           213         -         6475
+  oxford                1     2019-2025           195         -         1283
+
+✓ Coverage calculation complete.
+19:03:42.380 | INFO    | Task run 'oxford-coverage-10e' - Oxford coverage statistics updated
+19:03:42.383 | INFO    | Task run 'oxford-coverage-10e' - Finished in state Completed()
+19:03:42.384 | INFO    | Flow run 'diamond-starling' - oxford_flow complete
+19:03:43.361 | INFO    | Flow run 'diamond-starling' - Finished in state Completed()
+
+──────────────────────────────────────────────────
+✓ oxford pipeline complete.
+  Check Prefect UI and Supabase ops.pipeline_runs
+  for detailed results.
+19:03:43.375 | INFO    | prefect - Stopping temporary server on http://127.0.0.1:8266
+
+
+============================================================
+Oxford - INGESTION AND TRANSFORMATION
+============================================================
+python3 -m database.upload_to_b2 --source wipo --file data/raw/wipo/wipo_ai_patents.csv
+  Detected WIPO year range: 1980–2024
+
+Reading wipo_ai_patents.csv...
+  File size: 0.0 MB
+  B2 destination: bronze/wipo_ip/source_2026-04-23.csv
+  Uploaded by:    Chloe Tabourian @ MacBook-Pro-2.local
+
+Uploading to B2...
+✓ Uploaded successfully: bronze/wipo_ip/source_2026-04-23.csv
+✓ Upload logged to B2: logs/wipo/wipo_ai_patents_1980-2024_uploaded_2026-04-23.json
+
+──────────────────────────────────────────────────
+File uploaded. Triggering wipo pipeline...
+──────────────────────────────────────────────────
+
+
+Triggering wipo flow...
+19:26:49.520 | INFO    | prefect - Starting temporary server on http://127.0.0.1:8192
+See https://docs.prefect.io/v3/concepts/server#how-to-guides for more information on running a dedicated Prefect server.
+19:26:52.850 | INFO    | Flow run 'military-gaur' - Beginning flow run 'military-gaur' for flow 'wipo-flow'
+19:26:52.852 | INFO    | Flow run 'military-gaur' - wipo_flow started
+19:26:52.877 | INFO    | Task run 'wipo-ingestion-e10' - Starting WIPO ingestion
+  [start] ai_patent_count
+  [done]  ai_patent_count — 2353 rows
+✓ wipo_ip ingestion complete. Inserted: 2353, Rejected: 0, Parked: 0 metric(s)
+19:27:02.896 | INFO    | Task run 'wipo-ingestion-e10' - WIPO ingestion complete
+19:27:02.897 | INFO    | Task run 'wipo-ingestion-e10' - Finished in state Completed()
+19:27:02.900 | INFO    | Task run 'wipo-transformation-a84' - Starting WIPO transformation
+  [first run] Skipping revision detection and read-back — no existing rows.
+  [start] ai_patent_count
+    [parse] Dropped 54 rows with unmappable ISO2 codes
+  [done]  ai_patent_count — 2299 rows
+✓ wipo_ip transformation complete. Inserted: 2299, Rejected: 0
+19:35:18.505 | INFO    | Task run 'wipo-transformation-a84' - WIPO transformation complete
+19:35:18.507 | INFO    | Task run 'wipo-transformation-a84' - Finished in state Completed()
+19:35:18.508 | INFO    | Task run 'wipo-coverage-4ee' - Updating WIPO coverage statistics
+=======================================================
+Calculating metric coverage...
+  Source: wipo_ip
+=======================================================
+  1 metrics to update
+  Coverage data found for 1 metrics
+
+  Updated:   1 metrics
+  Unchanged: 0 metrics
+  No data:   0 metrics (not yet ingested)
+
+  Coverage by source:
+  source          metrics         years avg_countries  missing%    total_obs
+  ─────────────────────────────────────────────────────────────────────────
+  imf                  78     2021-2030           107         -        57317
+  oecd_msti             3     2021-2025            43         -          482
+  openalex              1     1990-2026           213         -         6475
+  oxford                1     2019-2025           195         -         1283
+  wipo_ip               1     1980-2024           131         -         2299
+
+✓ Coverage calculation complete.
+19:35:24.067 | INFO    | Task run 'wipo-coverage-4ee' - WIPO coverage statistics updated
+19:35:24.073 | INFO    | Task run 'wipo-coverage-4ee' - Finished in state Completed()
+19:35:24.074 | INFO    | Flow run 'military-gaur' - wipo_flow complete
+19:35:24.766 | INFO    | Flow run 'military-gaur' - Finished in state Completed()
+
+──────────────────────────────────────────────────
+✓ wipo pipeline complete.
+  Check Prefect UI and Supabase ops.pipeline_runs
+  for detailed results.
+19:35:24.780 | INFO    | prefect - Stopping temporary server on http://127.0.0.1:8192

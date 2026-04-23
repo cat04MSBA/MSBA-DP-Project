@@ -80,8 +80,15 @@ class WIPOIngestor(BaseIngestor):
 
         df_wide = pd.read_csv(
             io.BytesIO(csv_bytes),
-            skiprows = WIPO_HEADER_ROWS,
-            dtype    = str,
+            skiprows  = WIPO_HEADER_ROWS,
+            dtype     = str,
+            index_col = False,
+            # WHY index_col=False:
+            #   WIPO CSV has a trailing comma at the end of every row.
+            #   Without this, pandas treats the first column as the index
+            #   and shifts all column assignments by one — Origin (Code)
+            #   ends up containing 'Total' instead of ISO2 country codes,
+            #   causing all rows to be dropped as unmappable.
         )
 
         # Identify year columns (4-digit numeric strings).
