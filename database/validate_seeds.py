@@ -181,26 +181,28 @@ def validate() -> bool:
             print(f"  ✓  metadata.countries: all continent values valid")
 
         # ── 6. Income group values are valid ───────────────────
+        # After decoding, values must be full human-readable labels
+        # or NULL (for INX = not classified). Codes like 'HIC'
+        # must not appear — they indicate the decoder didn't run.
+        VALID_INCOME_GROUPS_FULL = {
+            'High income', 'Upper middle income',
+            'Lower middle income', 'Low income',
+        }
         invalid_income = conn.execute(text(
             "SELECT DISTINCT income_group FROM metadata.countries "
             "WHERE income_group IS NOT NULL"
         )).fetchall()
-        # World Bank uses title case — normalise for comparison
         actual_income = {r[0] for r in invalid_income}
-        # Income group strings from WB are title-cased already
-        # Just check none are obviously wrong
-        known_keywords = {'income', 'Income'}
-        bad_income = {
-            v for v in actual_income
-            if not any(kw in v for kw in known_keywords)
-        }
+        bad_income = actual_income - VALID_INCOME_GROUPS_FULL
         if bad_income:
             warnings.append(
                 f"[INCOME GROUP] Unexpected income_group values: "
-                f"{bad_income}. Verify World Bank API response."
+                f"{bad_income}. Expected full labels like "
+                f"'High income', 'Low income'. Got codes instead — "
+                f"check extract_income() in seed_countries.py."
             )
         else:
-            print(f"  ✓  metadata.countries: income_group values look valid")
+            print(f"  ✓  metadata.countries: income_group values valid")
 
         # ── 7. FK: country_codes.iso3 → countries ─────────────
         orphan_iso3 = conn.execute(text("""

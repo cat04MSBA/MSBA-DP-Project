@@ -216,6 +216,21 @@ if 'income_group' not in economies.columns:
 # wbgapi sometimes returns dicts instead of strings
 # depending on version. We handle both cases.
 # ─────────────────────────────────────────────────────────────
+
+# World Bank income group code → human-readable label.
+# The wbgapi library sometimes returns the code ('HIC') instead
+# of the full label ('High income') depending on version and
+# API response format. We always store the full label so the
+# Streamlit UI can display and filter by readable values.
+# INX = "Not classified" — stored as NULL (no meaningful group).
+INCOME_GROUP_CODES = {
+    'HIC': 'High income',
+    'UMC': 'Upper middle income',
+    'LMC': 'Lower middle income',
+    'LIC': 'Low income',
+    'INX': None,
+}
+
 def extract_str(val):
     """Extract string from dict or return string directly."""
     if val is None:
@@ -226,8 +241,32 @@ def extract_str(val):
     s = str(val).strip()
     return None if s in ('', 'nan', 'None') else s
 
+def extract_income(val):
+    """
+    Extract income group label from dict, code, or string.
+    Decodes World Bank codes (HIC, UMC, LMC, LIC, INX) into
+    human-readable labels so the Streamlit UI can filter by
+    'High income' not 'HIC'.
+    """
+    if val is None:
+        return None
+    if isinstance(val, dict):
+        # May get {'id': 'HIC', 'value': 'High income'} — prefer value
+        label = val.get('value') or val.get('id') or None
+        if label in INCOME_GROUP_CODES:
+            return INCOME_GROUP_CODES[label]
+        return label
+    s = str(val).strip()
+    if s in ('', 'nan', 'None'):
+        return None
+    # Decode code → full label if it's a code
+    if s in INCOME_GROUP_CODES:
+        return INCOME_GROUP_CODES[s]
+    # Already a full label (e.g. 'High income') — return as-is
+    return s
+
 economies['region']       = economies['region'].apply(extract_str)
-economies['income_group'] = economies['income_group'].apply(extract_str)
+economies['income_group'] = economies['income_group'].apply(extract_income)
 economies['iso3']         = economies['iso3'].apply(extract_str)
 economies['country_name'] = economies['country_name'].apply(extract_str)
 

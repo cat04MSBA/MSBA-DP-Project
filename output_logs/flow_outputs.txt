@@ -1,34 +1,66 @@
-ChloeTabourian@MacBook-Pro-2 MSBA-DP-Project % python3 -m orchestration.oecd_flow
-03:03:36.423 | INFO    | Flow run 'prompt-rooster' - Beginning flow run 'prompt-rooster' for flow 'oecd-flow'
-03:03:36.427 | INFO    | Flow run 'prompt-rooster' - View at http://127.0.0.1:4200/runs/flow-run/081f56f0-5495-4800-aef8-8b6453eecdea
-03:03:36.427 | INFO    | Flow run 'prompt-rooster' - oecd_flow started
-03:03:36.447 | INFO    | Task run 'oecd-ingestion-19a' - Starting OECD ingestion
+============================================================
+OECD - INGESTION AND TRANSFORMATION
+============================================================
+python3 -c "from orchestration.oecd_flow import oecd_flow; oecd_flow()"
+11:15:34.109 | INFO    | prefect - Starting temporary server on http://127.0.0.1:8401
+See https://docs.prefect.io/v3/concepts/server#how-to-guides for more information on running a dedicated Prefect server.
+11:15:36.823 | INFO    | Flow run 'competent-robin' - Beginning flow run 'competent-robin' for flow 'oecd-flow'
+11:15:36.825 | INFO    | Flow run 'competent-robin' - oecd_flow started
+11:15:36.847 | INFO    | Task run 'oecd-ingestion-5da' - Starting OECD ingestion
   [start] berd_gdp
   [done]  berd_gdp — 167 rows
   [start] goverd_gdp
   [done]  goverd_gdp — 167 rows
   [start] researchers_per_thousand
   [done]  researchers_per_thousand — 148 rows
-
-  
 ✓ oecd_msti ingestion complete. Inserted: 482, Rejected: 0, Parked: 0 metric(s)
-03:03:50.525 | INFO    | Task run 'oecd-ingestion-19a' - OECD ingestion complete
-03:03:50.528 | INFO    | Task run 'oecd-ingestion-19a' - Finished in state Completed()
-03:03:50.531 | INFO    | Task run 'oecd-transformation-255' - Starting OECD transformation
-  [start] berd_gdp
-  [done]  berd_gdp — 167 rows
-  [start] goverd_gdp
-  [done]  goverd_gdp — 167 rows
+11:16:04.760 | INFO    | Task run 'oecd-ingestion-5da' - OECD ingestion complete
+11:16:04.764 | INFO    | Task run 'oecd-ingestion-5da' - Finished in state Completed()
+11:16:04.768 | INFO    | Task run 'oecd-transformation-6e8' - Starting OECD transformation
+  [first run] Skipping revision detection and read-back — no existing rows.
   [start] researchers_per_thousand
   [done]  researchers_per_thousand — 148 rows
+  [start] goverd_gdp
+  [done]  goverd_gdp — 167 rows
+  [start] berd_gdp
+  [done]  berd_gdp — 167 rows
 ✓ oecd_msti transformation complete. Inserted: 482, Rejected: 0
-03:09:33.590 | INFO    | Task run 'oecd-transformation-255' - OECD transformation complete
-03:09:33.593 | INFO    | Task run 'oecd-transformation-255' - Finished in state Completed()
-03:09:33.595 | INFO    | Flow run 'prompt-rooster' - oecd_flow complete
-03:09:33.713 | INFO    | Flow run 'prompt-rooster' - Finished in state Completed()
+11:18:35.933 | INFO    | Task run 'oecd-transformation-6e8' - OECD transformation complete
+11:18:35.937 | INFO    | Task run 'oecd-transformation-6e8' - Finished in state Completed()
+11:18:35.941 | INFO    | Task run 'oecd-coverage-dbf' - Updating OECD coverage statistics
+=======================================================
+Calculating metric coverage...
+  Source: oecd_msti
+=======================================================
+  3 metrics to update
+  Coverage data found for 3 metrics
+
+  Updated:   3 metrics
+  Unchanged: 0 metrics
+  No data:   0 metrics (not yet ingested)
+
+  Coverage by source:
+  source          metrics         years avg_countries  missing%    total_obs
+  ─────────────────────────────────────────────────────────────────────────
+  oecd_msti             3     2021-2025            43         -          482
+
+✓ Coverage calculation complete.
+11:18:42.034 | INFO    | Task run 'oecd-coverage-dbf' - OECD coverage statistics updated
+11:18:42.037 | INFO    | Task run 'oecd-coverage-dbf' - Finished in state Completed()
+11:18:42.038 | INFO    | Flow run 'competent-robin' - oecd_flow complete
+11:18:42.497 | INFO    | Flow run 'competent-robin' - Finished in state Completed()
+11:18:43.183 | INFO    | prefect - Stopping temporary server on http://127.0.0.1:8401
 
 
-ChloeTabourian@MacBook-Pro-2 MSBA-DP-Project % python3 -m orchestration.openalex_flow
+============================================================
+OPENALEX - INGESTION AND TRANSFORMATION
+============================================================
+ChloeTabourian@MacBook-Pro-2 MSBA-DP-Project % python3 -c "from orchestration.openalex_flow import openalex_flow; openalex_flow()"
+11:21:21.491 | INFO    | prefect - Starting temporary server on http://127.0.0.1:8989
+See https://docs.prefect.io/v3/concepts/server#how-to-guides for more information on running a dedicated Prefect server.
+11:21:24.204 | INFO    | Flow run 'reasonable-slug' - Beginning flow run 'reasonable-slug' for flow 'openalex-flow'
+11:21:24.206 | INFO    | Flow run 'reasonable-slug' - openalex_flow started
+11:21:24.229 | INFO    | Task run 'openalex-ingestion-303' - Starting OpenAlex ingestion
   [start] 1990
   [done]  1990 — 138 rows
   [start] 1991
@@ -104,3 +136,424 @@ ChloeTabourian@MacBook-Pro-2 MSBA-DP-Project % python3 -m orchestration.openalex
   [start] 2026
   [done]  2026 — 200 rows
 ✓ openalex ingestion complete. Inserted: 6668, Rejected: 0, Parked: 0 metric(s)
+11:23:25.387 | INFO    | Task run 'openalex-ingestion-303' - OpenAlex ingestion complete
+11:23:25.391 | INFO    | Task run 'openalex-ingestion-303' - Finished in state Completed()
+11:23:25.395 | INFO    | Task run 'openalex-transformation-161' - Starting OpenAlex transformation
+  [first run] Skipping revision detection and read-back — no existing rows.
+  [start] 1990
+    [parse] Dropped 2 rows with unmappable OpenAlex ISO2 codes
+  [done]  1990 — 136 rows
+  [start] 1991
+    [parse] Dropped 2 rows with unmappable OpenAlex ISO2 codes
+  [done]  1991 — 136 rows
+  [start] 1992
+    [parse] Dropped 3 rows with unmappable OpenAlex ISO2 codes
+  [done]  1992 — 150 rows
+  [start] 1993
+    [parse] Dropped 3 rows with unmappable OpenAlex ISO2 codes
+  [done]  1993 — 144 rows
+  [start] 1994
+    [parse] Dropped 1 rows with unmappable OpenAlex ISO2 codes
+  [done]  1994 — 151 rows
+  [start] 1995
+    [parse] Dropped 4 rows with unmappable OpenAlex ISO2 codes
+  [done]  1995 — 145 rows
+  [start] 1996
+    [parse] Dropped 2 rows with unmappable OpenAlex ISO2 codes
+  [done]  1996 — 147 rows
+  [start] 1997
+    [parse] Dropped 3 rows with unmappable OpenAlex ISO2 codes
+  [done]  1997 — 151 rows
+  [start] 1998
+    [parse] Dropped 7 rows with unmappable OpenAlex ISO2 codes
+  [done]  1998 — 150 rows
+  [start] 1999
+    [parse] Dropped 4 rows with unmappable OpenAlex ISO2 codes
+  [done]  1999 — 156 rows
+  [start] 2000
+    [parse] Dropped 4 rows with unmappable OpenAlex ISO2 codes
+  [done]  2000 — 159 rows
+  [start] 2001
+    [parse] Dropped 4 rows with unmappable OpenAlex ISO2 codes
+  [done]  2001 — 159 rows
+  [start] 2002
+    [parse] Dropped 4 rows with unmappable OpenAlex ISO2 codes
+  [done]  2002 — 173 rows
+  [start] 2003
+    [parse] Dropped 6 rows with unmappable OpenAlex ISO2 codes
+  [done]  2003 — 171 rows
+  [start] 2004
+    [parse] Dropped 5 rows with unmappable OpenAlex ISO2 codes
+  [done]  2004 — 172 rows
+  [start] 2005
+    [parse] Dropped 6 rows with unmappable OpenAlex ISO2 codes
+  [done]  2005 — 171 rows
+  [start] 2006
+    [parse] Dropped 7 rows with unmappable OpenAlex ISO2 codes
+  [done]  2006 — 177 rows
+  [start] 2007
+    [parse] Dropped 6 rows with unmappable OpenAlex ISO2 codes
+  [done]  2007 — 184 rows
+  [start] 2008
+    [parse] Dropped 5 rows with unmappable OpenAlex ISO2 codes
+  [done]  2008 — 182 rows
+  [start] 2009
+    [parse] Dropped 6 rows with unmappable OpenAlex ISO2 codes
+  [done]  2009 — 189 rows
+  [start] 2010
+    [parse] Dropped 4 rows with unmappable OpenAlex ISO2 codes
+  [done]  2010 — 189 rows
+  [start] 2011
+    [parse] Dropped 7 rows with unmappable OpenAlex ISO2 codes
+  [done]  2011 — 188 rows
+  [start] 2012
+    [parse] Dropped 6 rows with unmappable OpenAlex ISO2 codes
+  [done]  2012 — 189 rows
+  [start] 2013
+    [parse] Dropped 7 rows with unmappable OpenAlex ISO2 codes
+  [done]  2013 — 191 rows
+  [start] 2014
+    [parse] Dropped 7 rows with unmappable OpenAlex ISO2 codes
+  [done]  2014 — 193 rows
+  [start] 2015
+    [parse] Dropped 7 rows with unmappable OpenAlex ISO2 codes
+  [done]  2015 — 193 rows
+  [start] 2016
+    [parse] Dropped 7 rows with unmappable OpenAlex ISO2 codes
+  [done]  2016 — 193 rows
+  [start] 2017
+    [parse] Dropped 6 rows with unmappable OpenAlex ISO2 codes
+  [done]  2017 — 194 rows
+  [start] 2018
+    [parse] Dropped 7 rows with unmappable OpenAlex ISO2 codes
+  [done]  2018 — 193 rows
+  [start] 2019
+    [parse] Dropped 6 rows with unmappable OpenAlex ISO2 codes
+  [done]  2019 — 194 rows
+  [start] 2020
+    [parse] Dropped 6 rows with unmappable OpenAlex ISO2 codes
+  [done]  2020 — 194 rows
+  [start] 2021
+    [parse] Dropped 6 rows with unmappable OpenAlex ISO2 codes
+  [done]  2021 — 194 rows
+  [start] 2022
+    [parse] Dropped 7 rows with unmappable OpenAlex ISO2 codes
+  [done]  2022 — 193 rows
+  [start] 2023
+    [parse] Dropped 6 rows with unmappable OpenAlex ISO2 codes
+  [done]  2023 — 194 rows
+  [start] 2024
+    [parse] Dropped 6 rows with unmappable OpenAlex ISO2 codes
+  [done]  2024 — 194 rows
+  [start] 2025
+    [parse] Dropped 6 rows with unmappable OpenAlex ISO2 codes
+  [done]  2025 — 194 rows
+  [start] 2026
+    [parse] Dropped 8 rows with unmappable OpenAlex ISO2 codes
+  [done]  2026 — 192 rows
+✓ openalex transformation complete. Inserted: 6475, Rejected: 0
+11:49:51.440 | INFO    | Task run 'openalex-transformation-161' - OpenAlex transformation complete
+11:49:51.441 | INFO    | Task run 'openalex-transformation-161' - Finished in state Completed()
+11:49:51.442 | INFO    | Task run 'openalex-coverage-8cc' - Updating OpenAlex coverage statistics
+=======================================================
+Calculating metric coverage...
+  Source: openalex
+=======================================================
+  1 metrics to update
+  Coverage data found for 1 metrics
+
+  Updated:   1 metrics
+  Unchanged: 0 metrics
+  No data:   0 metrics (not yet ingested)
+
+  Coverage by source:
+  source          metrics         years avg_countries  missing%    total_obs
+  ─────────────────────────────────────────────────────────────────────────
+  oecd_msti             3     2021-2025            43         -          482
+  openalex              1     1990-2026           213         -         6475
+
+✓ Coverage calculation complete.
+11:49:57.294 | INFO    | Task run 'openalex-coverage-8cc' - OpenAlex coverage statistics updated
+11:49:57.295 | INFO    | Task run 'openalex-coverage-8cc' - Finished in state Completed()
+11:49:57.296 | INFO    | Flow run 'reasonable-slug' - openalex_flow complete
+11:49:57.470 | INFO    | Flow run 'reasonable-slug' - Finished in state Completed()
+11:49:57.479 | INFO    | prefect - Stopping temporary server on http://127.0.0.1:8989
+
+============================================================
+IMF - INGESTION AND TRANSFORMATION
+============================================================
+python3 -c "from orchestration.imf_flow import imf_flow; imf_flow()"
+11:58:43.560 | INFO    | prefect - Starting temporary server on http://127.0.0.1:8238
+See https://docs.prefect.io/v3/concepts/server#how-to-guides for more information on running a dedicated Prefect server.
+11:58:46.577 | INFO    | Flow run 'adorable-bandicoot' - Beginning flow run 'adorable-bandicoot' for flow 'imf-flow'
+11:58:46.579 | INFO    | Flow run 'adorable-bandicoot' - imf_flow started
+11:58:46.601 | INFO    | Task run 'imf-ingestion-4e7' - Starting IMF ingestion
+  [start] AI_PI
+  [done]  AI_PI — 178 rows
+  [start] BCA
+  [done]  BCA — 10581 rows
+  [start] BCA_GDP
+  [done]  BCA_GDP — 1593 rows
+  [start] BCA_NGDPD
+  [done]  BCA_NGDPD — 10556 rows
+  [start] BFD_GDP
+  [done]  BFD_GDP — 1593 rows
+  [start] BM_GDP
+  [done]  BM_GDP — 1591 rows
+  [start] BRASS_MI
+  [done]  BRASS_MI — 1254 rows
+  [start] BT_GDP
+  [done]  BT_GDP — 1591 rows
+  [start] BX_GDP
+  [done]  BX_GDP — 1591 rows
+  [start] CG_DEBT_GDP
+  [done]  CG_DEBT_GDP — 8437 rows
+  [start] DEBT1
+  [done]  DEBT1 — 10068 rows
+  [start] DG_GDP
+  [done]  DG_GDP — 1585 rows
+  [start] DI
+  [done]  DI — 186 rows
+  [start] DebtA
+  [done]  DebtA — 2662 rows
+  [start] DebtForg
+  [done]  DebtForg — 2449 rows
+  [start] DebtL
+  [done]  DebtL — 2694 rows
+  [start] Deriv
+  [done]  Deriv — 2177 rows
+  [start] DirectAbroad
+  [done]  DirectAbroad — 3095 rows
+  [start] DirectIn
+  [done]  DirectIn — 3366 rows
+  [start] ENEER
+  [done]  ENEER — 1412 rows
+  [start] EREER
+  [done]  EREER — 1412 rows
+  [start] EquityA
+  [done]  EquityA — 2630 rows
+  [start] EquityL
+  [done]  EquityL — 2571 rows
+  [start] FC_dummy
+  [done]  FC_dummy — 1004 rows
+  [start] FDSAOP_GDP
+  [done]  FDSAOP_GDP — 1450 rows
+  [start] FDSAOP_PCH
+  [done]  FDSAOP_PCH — 1448 rows
+  [start] FMB_GDP
+  [done]  FMB_GDP — 1593 rows
+  [start] FMB_PCH
+  [done]  FMB_PCH — 1592 rows
+  [start] FM_ka
+  [done]  FM_ka — 1933 rows
+  [start] FR_ind
+  [done]  FR_ind — 5160 rows
+  [start] GDI_TC
+  [done]  GDI_TC — 3204 rows
+  [start] GDP
+  [done]  GDP — 3654 rows
+  [start] GGCBP_G01_PGDP_PT
+  [done]  GGCBP_G01_PGDP_PT — 3152 rows
+  [start] GGCB_G01_PGDP_PT
+  [done]  GGCB_G01_PGDP_PT — 3254 rows
+  [start] GGRXG_GDP
+  [done]  GGRXG_GDP — 1591 rows
+  [start] GGR_G01_GDP_PT
+  [done]  GGR_G01_GDP_PT — 8025 rows
+  [start] GGXCNLXG_GDP
+  [done]  GGXCNLXG_GDP — 1591 rows
+  [start] GGXCNL_G01_GDP_PT
+  [done]  GGXCNL_G01_GDP_PT — 7953 rows
+  [start] GGXCNL_GDP
+  [done]  GGXCNL_GDP — 1592 rows
+  [start] GGXCNL_NGDP
+  [done]  GGXCNL_NGDP — 8848 rows
+  [start] GGXONLB_G01_GDP_PT
+  [done]  GGXONLB_G01_GDP_PT — 7618 rows
+  [start] GGXWDG_GDP
+  [done]  GGXWDG_GDP — 1589 rows
+  [start] GGXWDG_NGDP
+  [done]  GGXWDG_NGDP — 8113 rows
+  [start] GGXWDN_G01_GDP_PT
+  [done]  GGXWDN_G01_GDP_PT — 3336 rows
+  [start] GGX_GDP
+  [done]  GGX_GDP — 1592 rows
+  [start] GG_DEBT_GDP
+  [done]  GG_DEBT_GDP — 3478 rows
+  [start] GII_TC
+  [done]  GII_TC — 3401 rows
+  [start] GRB_dummy
+  [done]  GRB_dummy — 838 rows
+  [start] G_XWDG_G01_GDP_PT
+  [done]  G_XWDG_G01_GDP_PT — 7427 rows
+  [start] G_X_G01_GDP_PT
+  [done]  G_X_G01_GDP_PT — 7965 rows
+  [start] HCLMP
+  [done]  HCLMP — 186 rows
+  [start] HH_ALL
+  [done]  HH_ALL — 1197 rows
+  [start] HH_LS
+  [done]  HH_LS — 2684 rows
+  [start] IEI
+  [done]  IEI — 180 rows
+  [start] Ka_bo
+  [done]  Ka_bo — 2179 rows
+  [start] Ka_cc
+  [done]  Ka_cc — 2302 rows
+  [start] Ka_ci
+  [done]  Ka_ci — 2166 rows
+  [start] Ka_di
+  [done]  Ka_di — 2343 rows
+  [start] Ka_dr
+  [done]  Ka_dr — 2009 rows
+  [start] Ka_eq
+  [done]  Ka_eq — 2255 rows
+  [start] Ka_fc
+  [done]  Ka_fc — 2332 rows
+  [start] Ka_gu
+  [done]  Ka_gu — 2283 rows
+  [start] Ka_mm
+  [done]  Ka_mm — 2220 rows
+  [start] LP
+  [done]  LP — 11009 rows
+  [start] LUR
+  [done]  LUR — 5165 rows
+  [start] NFC_ALL
+  [done]  NFC_ALL — 1197 rows
+  [start] NFC_LS
+  [done]  NFC_LS — 2671 rows
+  [start] NFPS_DEBT_GDP
+  [done]  NFPS_DEBT_GDP — 468 rows
+  [start] NGDPD
+  [done]  NGDPD — 11011 rows
+  [start] NGDPDPC
+  [done]  NGDPDPC — 10873 rows
+  [start] NGDPRPC_PCH
+  [done]  NGDPRPC_PCH — 1592 rows
+  [start] NGDPXO_RPCH
+  [done]  NGDPXO_RPCH — 1568 rows
+  [start] NGDP_RPCH
+  [done]  NGDP_RPCH — 10914 rows
+  [start] NGDP_R_PCH
+  [done]  NGDP_R_PCH — 1592 rows
+  [start] NGS_GDP
+  [done]  NGS_GDP — 1545 rows
+  [start] NI_GDP
+  [done]  NI_GDP — 1545 rows
+  [start] Nonres_ka
+  [done]  Nonres_ka — 1967 rows
+  [start] OtherA
+  [done]  OtherA — 3341 rows
+  [start] OtherGov
+  [done]  OtherGov — 3324 rows
+  [start] OtherL
+  [done]  OtherL — 3408 rows
+  [start] PCPIEPCH
+  [done]  PCPIEPCH — 10181 rows
+  [start] PCPIE_PCH
+  [done]  PCPIE_PCH — 1587 rows
+  [start] PCPIPCH
+  [done]  PCPIPCH — 10789 rows
+  [start] PCPI_PCH
+  [done]  PCPI_PCH — 1592 rows
+  [start] PPPEX
+  [done]  PPPEX — 9385 rows
+  [start] PPPGDP
+  [done]  PPPGDP — 10955 rows
+  [start] PPPPC
+  [done]  PPPPC — 10891 rows
+  [start] PPPSH
+  [done]  PPPSH — 10955 rows
+  [start] PS_DEBT_GDP
+  [done]  PS_DEBT_GDP — 473 rows
+  [start] PVD_LS
+  [done]  PVD_LS — 8385 rows
+  [start] Portfa
+  [done]  Portfa — 3123 rows
+  [start] Portfl
+  [done]  Portfl — 3079 rows
+  [start] PrivInexDI
+  [done]  PrivInexDI — 3459 rows
+  [start] PrivInexDIGDP
+  [done]  PrivInexDIGDP — 3456 rows
+  [start] PrivOutexDI
+  [done]  PrivOutexDI — 3362 rows
+  [start] PrivOutexDIGDP
+  [done]  PrivOutexDIGDP — 3362 rows
+  [start] Privatedebt_all
+  [done]  Privatedebt_all — 1197 rows
+  [start] RE
+  [done]  RE — 187 rows
+  [start] Res_ka
+  [done]  Res_ka — 2022 rows
+  [start] Reserves_ARA
+  [done]  Reserves_ARA — 1466 rows
+  [start] Reserves_M
+  [done]  Reserves_M — 1811 rows
+  [start] Reserves_M2
+  [done]  Reserves_M2 — 1818 rows
+  [start] Reserves_STD
+  [done]  Reserves_STD — 1542 rows
+  [start] SITC1_0
+  [done]  SITC1_0 — 9141 rows
+  [start] SITC1_1
+  [done]  SITC1_1 — 8078 rows
+  [start] SITC1_2
+  [done]  SITC1_2 — 9107 rows
+  [start] SITC1_3
+  [done]  SITC1_3 — 7412 rows
+  [start] SITC1_4
+  [done]  SITC1_4 — 7579 rows
+  [start] SITC1_5
+  [done]  SITC1_5 — 8568 rows
+  [start] SITC1_6
+  [done]  SITC1_6 — 8943 rows
+  [start] SITC1_7
+  [done]  SITC1_7 — 8933 rows
+  [start] SITC1_8
+  [done]  SITC1_8 — 8818 rows
+  [start] SITC1_9
+  [done]  SITC1_9 — 7770 rows
+  [start] SITC1_total
+  [done]  SITC1_total — 9176 rows
+  [start] TTT
+  [done]  TTT — 1576 rows
+  [start] d
+  [done]  d — 9077 rows
+  [start] exp
+  [done]  exp — 9265 rows
+  [start] extensive
+  [done]  extensive — 10853 rows
+  [start] ie
+  [done]  ie — 8402 rows
+  [start] intensive
+  [done]  intensive — 10874 rows
+  [start] ka_in
+  [done]  ka_in — 1930 rows
+  [start] ka_ldi
+  [done]  ka_ldi — 2353 rows
+  [start] ka_new
+  [done]  ka_new — 2038 rows
+  [start] ka_out
+  [done]  ka_out — 1939 rows
+  [start] ka_pct
+  [done]  ka_pct — 2278 rows
+  [start] ka_ret
+  [done]  ka_ret — 2345 rows
+  [start] pb
+  [done]  pb — 8348 rows
+  [start] prim_exp
+  [done]  prim_exp — 8348 rows
+  [start] rev
+  [done]  rev — 9244 rows
+  [start] rgc
+  [done]  rgc — 12151 rows
+  [start] rltir
+  [done]  rltir — 3571 rows
+  [start] total_theil
+  [done]  total_theil — 10875 rows
+✓ imf ingestion complete. Inserted: 589268, Rejected: 0, Parked: 0 metric(s)
+12:19:27.252 | INFO    | Task run 'imf-ingestion-4e7' - IMF ingestion complete
+12:19:27.254 | INFO    | Task run 'imf-ingestion-4e7' - Finished in state Completed()
+12:19:27.257 | INFO    | Task run 'imf-transformation-809' - Starting IMF transformation
+  [first run] Skipping revision detection and read-back — no existing rows.
