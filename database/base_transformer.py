@@ -154,6 +154,33 @@ class BaseTransformer(ABC):
                 self._flush_rejections(conn)
                 conn.commit()
 
+                # ── Zero rows check — BEFORE closing as success ─
+                # Zero rows after a successful parse means silent
+                # data loss — upsert ran but nothing landed. This
+                # must raise BEFORE _close_pipeline_run() marks the
+                # run as success, and BEFORE coverage runs.
+                # Raising here lets the except block handle cleanup
+                # and the Prefect on_failure hook send the alert.
+                if self.total_inserted == 0:
+                    raise CriticalCheckError(
+                        source_id  = self.source_id,
+                        check_name = 'zero_rows',
+                        stage      = 'transformation_post',
+                        batch_unit = 'all',
+                        expected   = '>0 rows inserted',
+                        actual     = '0 rows inserted',
+                        details    = (
+                            f"ZERO ROWS: {self.source_id} transformation "
+                            f"completed with 0 rows inserted.\n\n"
+                            f"All quality checks passed — this indicates "
+                            f"a silent infrastructure failure, most likely "
+                            f"the Session Pooler routing upsert statements "
+                            f"to different backend sessions.\n\n"
+                            f"last_retrieved has NOT been updated. "
+                            f"Next run will retry the full window."
+                        ),
+                    )
+
                 # ── Close pipeline run ─────────────────────────
                 final_status = (
                     'success' if self.total_rejected == 0
@@ -168,10 +195,6 @@ class BaseTransformer(ABC):
                     f"Inserted: {self.total_inserted}, "
                     f"Rejected: {self.total_rejected}"
                 )
-
-                # ── Zero rows alert ────────────────────────────
-                if self.total_inserted == 0:
-                    self._alert_zero_rows()
 
             except CriticalCheckError as e:
                 conn.rollback()
@@ -255,47 +278,55 @@ class BaseTransformer(ABC):
     # ═══════════════════════════════════════════════════════
 
     def _upsert_chunks(self, conn, df: pd.DataFrame):
-        """Upsert df in 1000-row chunks via temp table pattern."""
+        """
+        Upsert df in chunks directly into standardized.observations.
+
+        WHY NOT TEMP TABLE:
+            The temp table pattern (CREATE TEMP TABLE → INSERT → SELECT)
+            is broken on Supabase Session Pooler. The pooler may route
+            each statement to a different backend session, causing the
+            SELECT FROM temp_obs to fail with 'relation does not exist'
+            because the temp table was created in a different session.
+            This silently inserts zero rows — all quality checks pass
+            but nothing lands in the silver layer.
+
+        WHY DIRECT VALUES INSERT:
+            Inserting directly with VALUES (...), (...) in one statement
+            avoids the session routing issue entirely. All rows in a
+            chunk land in a single SQL statement and a single session.
+            ON CONFLICT DO UPDATE handles upsert semantics correctly
+            without needing a staging table.
+
+        WHY NAMED PARAMS NOT STRING INTERPOLATION:
+            SQLAlchemy named params (:country_iso3 etc.) are passed as
+            a list of dicts to executemany — safe from SQL injection
+            and correctly typed by psycopg2.
+        """
         if df.empty:
             return
 
-        for i in range(0, len(df), UPSERT_CHUNK_SIZE):
-            chunk = df.iloc[i:i + UPSERT_CHUNK_SIZE]
+        records = df.to_dict(orient='records')
 
-            conn.execute(text("""
-                CREATE TEMP TABLE temp_obs
-                ON COMMIT DROP
-                AS SELECT * FROM standardized.observations LIMIT 0
-            """))
+        for i in range(0, len(records), UPSERT_CHUNK_SIZE):
+            chunk = records[i:i + UPSERT_CHUNK_SIZE]
 
             conn.execute(
                 text("""
-                    INSERT INTO temp_obs (
+                    INSERT INTO standardized.observations (
                         country_iso3, year, period, metric_id,
                         value, source_id, retrieved_at
                     ) VALUES (
                         :country_iso3, :year, :period, :metric_id,
                         :value, :source_id, :retrieved_at
                     )
+                    ON CONFLICT (country_iso3, year, period, metric_id)
+                    DO UPDATE SET
+                        value        = EXCLUDED.value,
+                        source_id    = EXCLUDED.source_id,
+                        retrieved_at = EXCLUDED.retrieved_at
                 """),
-                chunk.to_dict(orient='records')
+                chunk,
             )
-
-            conn.execute(text("""
-                INSERT INTO standardized.observations (
-                    country_iso3, year, period, metric_id,
-                    value, source_id, retrieved_at
-                )
-                SELECT
-                    country_iso3, year, period, metric_id,
-                    value, source_id, retrieved_at
-                FROM temp_obs
-                ON CONFLICT (country_iso3, year, period, metric_id)
-                DO UPDATE SET
-                    value        = EXCLUDED.value,
-                    source_id    = EXCLUDED.source_id,
-                    retrieved_at = EXCLUDED.retrieved_at
-            """))
 
             conn.commit()
 
@@ -305,39 +336,46 @@ class BaseTransformer(ABC):
     # ═══════════════════════════════════════════════════════
 
     def _readback_from_supabase(self, conn, df: pd.DataFrame) -> pd.DataFrame:
-        """Read back upserted rows via temp table join."""
-        conn.execute(text("""
-            CREATE TEMP TABLE temp_pks (
-                country_iso3  CHAR(3),
-                year          SMALLINT,
-                period        TEXT,
-                metric_id     TEXT
-            ) ON COMMIT DROP
-        """))
+        """
+        Read back upserted rows from standardized.observations.
 
-        pk_rows = df[
-            ['country_iso3', 'year', 'period', 'metric_id']
-        ].to_dict(orient='records')
+        WHY NOT TEMP TABLE:
+            Temp tables are broken on Supabase Session Pooler —
+            the pooler may route the JOIN query to a different
+            session where the temp table doesn't exist.
 
-        for i in range(0, len(pk_rows), READBACK_CHUNKSIZE):
-            conn.execute(
-                text("""
-                    INSERT INTO temp_pks (
-                        country_iso3, year, period, metric_id
-                    ) VALUES (
-                        :country_iso3, :year, :period, :metric_id
-                    )
-                """),
-                pk_rows[i:i + READBACK_CHUNKSIZE]
+        WHY VALUES CTE:
+            A VALUES(...) CTE inlines the primary keys directly
+            into the query as a derived table. Everything runs in
+            one SQL statement, one session, no temp table needed.
+            This is the standard Session Pooler-safe pattern.
+        """
+        if df.empty:
+            return pd.DataFrame(
+                columns=['country_iso3', 'year', 'period', 'metric_id', 'value']
             )
 
-        return pd.read_sql(text("""
+        # Build a VALUES CTE from the primary keys of the upserted rows.
+        # Each tuple is (country_iso3, year, period, metric_id).
+        pk_rows = df[['country_iso3', 'year', 'period', 'metric_id']
+                     ].to_dict(orient='records')
+
+        values_clause = ', '.join(
+            f"('{r['country_iso3']}', {int(r['year'])}, "
+            f"'{r['period']}', '{r['metric_id']}')"
+            for r in pk_rows
+        )
+
+        return pd.read_sql(text(f"""
+            WITH pks (country_iso3, year, period, metric_id) AS (
+                VALUES {values_clause}
+            )
             SELECT o.country_iso3, o.year, o.period,
                    o.metric_id, o.value
             FROM standardized.observations o
-            JOIN temp_pks p
+            JOIN pks p
               ON  o.country_iso3 = p.country_iso3
-              AND o.year         = p.year
+              AND o.year         = p.year::SMALLINT
               AND o.period       = p.period
               AND o.metric_id    = p.metric_id
         """), conn)
@@ -348,46 +386,42 @@ class BaseTransformer(ABC):
     # ═══════════════════════════════════════════════════════
 
     def _detect_revisions(self, conn, df: pd.DataFrame):
-        """Detect and log value changes before upsert overwrites them."""
+        """
+        Detect and log value changes before upsert overwrites them.
+
+        WHY NOT TEMP TABLE:
+            Same reason as _readback_from_supabase — Session Pooler
+            breaks temp table visibility across statements.
+            Uses a VALUES CTE instead.
+        """
         if df.empty:
             return
 
-        conn.execute(text("""
-            CREATE TEMP TABLE temp_incoming (
-                country_iso3  CHAR(3),
-                year          SMALLINT,
-                period        TEXT,
-                metric_id     TEXT,
-                new_value     TEXT
-            ) ON COMMIT DROP
-        """))
-
         incoming = df[
             ['country_iso3', 'year', 'period', 'metric_id', 'value']
-        ].rename(columns={'value': 'new_value'}).to_dict(orient='records')
+        ].to_dict(orient='records')
 
-        for i in range(0, len(incoming), READBACK_CHUNKSIZE):
-            conn.execute(
-                text("""
-                    INSERT INTO temp_incoming (
-                        country_iso3, year, period,
-                        metric_id, new_value
-                    ) VALUES (
-                        :country_iso3, :year, :period,
-                        :metric_id, :new_value
-                    )
-                """),
-                incoming[i:i + READBACK_CHUNKSIZE]
+        # Build VALUES clause inlining all incoming rows.
+        # Single SQL statement — no temp table, no session issues.
+        values_clause = ', '.join(
+            f"('{r['country_iso3']}', {int(r['year'])}, "
+            f"'{r['period']}', '{r['metric_id']}', "
+            f"'{str(r['value']).replace(chr(39), chr(39)+chr(39))}')"
+            for r in incoming
+        )
+
+        changed = pd.read_sql(text(f"""
+            WITH incoming (country_iso3, year, period,
+                           metric_id, new_value) AS (
+                VALUES {values_clause}
             )
-
-        changed = pd.read_sql(text("""
             SELECT
                 o.country_iso3, o.year, o.period, o.metric_id,
                 o.value AS old_value, t.new_value
             FROM standardized.observations o
-            JOIN temp_incoming t
+            JOIN incoming t
               ON  o.country_iso3 = t.country_iso3
-              AND o.year         = t.year
+              AND o.year         = t.year::SMALLINT
               AND o.period       = t.period
               AND o.metric_id    = t.metric_id
             WHERE o.value != t.new_value

@@ -589,49 +589,33 @@ def _close_maintenance_run(conn, run_id: int,
 
 def _upsert_chunks(conn, df: pd.DataFrame):
     """
-    Upsert DataFrame to standardized.observations in chunks
-    using the temp table pattern. Same approach as base_transformer.
+    Upsert DataFrame to standardized.observations in chunks.
+    Uses direct INSERT ... ON CONFLICT — no temp table.
+    Temp tables are broken on Supabase Session Pooler (session
+    routing causes temp table to be invisible across statements).
     """
-    chunks = [
-        df.iloc[i:i + UPSERT_CHUNK_SIZE]
-        for i in range(0, len(df), UPSERT_CHUNK_SIZE)
-    ]
+    records = df.to_dict(orient='records')
 
-    for chunk in chunks:
-        conn.execute(text("""
-            CREATE TEMP TABLE temp_obs
-            ON COMMIT DROP
-            AS SELECT * FROM standardized.observations LIMIT 0
-        """))
+    for i in range(0, len(records), UPSERT_CHUNK_SIZE):
+        chunk = records[i:i + UPSERT_CHUNK_SIZE]
 
         conn.execute(
             text("""
-                INSERT INTO temp_obs (
+                INSERT INTO standardized.observations (
                     country_iso3, year, period, metric_id,
                     value, source_id, retrieved_at
                 ) VALUES (
                     :country_iso3, :year, :period, :metric_id,
                     :value, :source_id, :retrieved_at
                 )
+                ON CONFLICT (country_iso3, year, period, metric_id)
+                DO UPDATE SET
+                    value        = EXCLUDED.value,
+                    source_id    = EXCLUDED.source_id,
+                    retrieved_at = EXCLUDED.retrieved_at
             """),
-            chunk.to_dict(orient='records')
+            chunk,
         )
-
-        conn.execute(text("""
-            INSERT INTO standardized.observations (
-                country_iso3, year, period, metric_id,
-                value, source_id, retrieved_at
-            )
-            SELECT
-                country_iso3, year, period, metric_id,
-                value, source_id, retrieved_at
-            FROM temp_obs
-            ON CONFLICT (country_iso3, year, period, metric_id)
-            DO UPDATE SET
-                value        = EXCLUDED.value,
-                source_id    = EXCLUDED.source_id,
-                retrieved_at = EXCLUDED.retrieved_at
-        """))
 
         conn.commit()
 

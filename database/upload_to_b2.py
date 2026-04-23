@@ -36,47 +36,59 @@ B2 PATHS:
     WIPO:   bronze/wipo_ip/source_{date}.csv
     PWT:    bronze/pwt/source_{date}.dta
 
+AUDIT LOG STRUCTURE:
+    Every upload writes a JSON log to B2 under a source-specific
+    folder so the audit trail is browsable by source:
+
+        logs/oxford/oxford_2019_uploaded_2026-04-23.json
+        logs/oxford/oxford_2020_uploaded_2026-04-23.json
+        logs/wipo/wipo_ai_patents_1980-2024_uploaded_2026-04-23.json
+        logs/pwt/pwt110_uploaded_2026-04-23.json
+
+    The log records: source, local file path, B2 destination key,
+    data year range, upload timestamp (UTC), hostname, and git
+    username if available — giving a complete audit trail of who
+    uploaded what, from which machine, and when.
+
 WHY ONE SCRIPT FOR ALL MANUAL SOURCES:
     A single entry point with --source routing is simpler than
-    three separate upload scripts. The team member runs one
-    command regardless of which source they are uploading.
-    Adding a new manual source means adding one elif block here.
+    three separate upload scripts. Adding a new manual source
+    means adding one elif block here.
 
 WHY THE FLOW IS TRIGGERED DIRECTLY (not via Prefect API):
-    Calling the flow function directly from Python runs it as
-    a Prefect flow run — Prefect tracks it, logs it, shows it
-    in the UI, and applies retry logic. This works without
-    requiring a separate Prefect deployment for each manual flow.
-
-    If in future the team wants to trigger flows remotely (from
-    a different machine, or via a web hook), replace the direct
-    function call with:
-        from prefect.deployments import run_deployment
-        run_deployment(name="oxford-flow/manual", timeout=0)
-    This change is isolated to this file only.
+    Direct call works without a Prefect deployment setup and is
+    still tracked by Prefect as a flow run. To switch to remote
+    triggering via Prefect API, replace the direct call with
+    run_deployment() here — no other files need to change.
 
 WHY --year IS REQUIRED FOR OXFORD (not for others):
     Oxford publishes one file per year. The year is part of the
     B2 filename so the ingestion script can identify which year
     each file belongs to. WIPO and PWT are single full-history
-    files with no year component in the filename.
-
-LOGGING:
-    Every upload is logged to B2 at:
-        logs/uploads/upload_{source}_{date}.json
-    This provides a permanent audit trail of when each file
-    was uploaded and by whom (hostname is captured).
-    Consistent with design document Section 14.
+    files — their year range is read from the file itself.
 """
 
 import argparse
+import io
 import json
 import socket
+import subprocess
 from datetime import date, datetime
 from pathlib import Path
 
+import pandas as pd
+
 from database.b2_upload import B2Client
 from database.email_utils import send_email
+
+
+# ═══════════════════════════════════════════════════════════════
+# CONSTANTS
+# ═══════════════════════════════════════════════════════════════
+
+# Number of header rows to skip in WIPO CSV before the data.
+# Used to detect the year range from column headers locally.
+WIPO_HEADER_ROWS = 3
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -93,7 +105,7 @@ SUPPORTED_SOURCES = {
         'requires_year': False,
         'description':   'WIPO AI Patent Statistics (.csv)',
         'extension':     '.csv',
-        'source_id':     'wipo_ip',  # maps to source_id in our system
+        'source_id':     'wipo_ip',
     },
     'pwt': {
         'requires_year': False,
@@ -101,6 +113,109 @@ SUPPORTED_SOURCES = {
         'extension':     '.dta',
     },
 }
+
+
+# ═══════════════════════════════════════════════════════════════
+# GIT USERNAME
+# ═══════════════════════════════════════════════════════════════
+
+def get_git_username() -> str:
+    """
+    Return the uploader's name for the audit log.
+
+    Tries in order:
+    1. git config user.name — if git is configured on this machine
+    2. Prompts the user to type their name — if git is not configured
+       Also offers to save it to git config so they're not asked again.
+
+    Returns:
+        Name string. Never returns empty or 'unknown'.
+    """
+    # Try git first
+    try:
+        result = subprocess.run(
+            ['git', 'config', 'user.name'],
+            capture_output = True,
+            text           = True,
+            timeout        = 5,
+        )
+        name = result.stdout.strip()
+        if name:
+            return name
+    except Exception:
+        pass
+
+    # Git not configured — prompt the user
+    print()
+    print("⚠ git user.name not configured on this machine.")
+    name = input("  Enter your name for the upload audit log: ").strip()
+
+    if not name:
+        name = 'unknown'
+    else:
+        # Offer to save to git config so they're not asked again
+        save = input(
+            f"  Save '{name}' to git config so you're not asked again? [y/n]: "
+        ).strip().lower()
+        if save == 'y':
+            try:
+                subprocess.run(
+                    ['git', 'config', '--global', 'user.name', name],
+                    timeout = 5,
+                )
+                print(f"  ✓ Saved to git config. Won't ask again.")
+            except Exception:
+                print(f"  ⚠ Could not save to git config. You'll be asked next time.")
+
+    return name
+
+
+# ═══════════════════════════════════════════════════════════════
+# YEAR RANGE DETECTION
+# ═══════════════════════════════════════════════════════════════
+
+def get_wipo_year_range(file_path: Path) -> tuple:
+    """
+    Read the WIPO CSV locally and detect the year range from
+    the column headers (4-digit numeric column names).
+
+    Used to produce a meaningful log filename and log entry
+    without having to open the file after it's on B2.
+
+    Returns:
+        (first_year, last_year) as strings, e.g. ('1980', '2024').
+        Returns ('unknown', 'unknown') if detection fails.
+    """
+    try:
+        df = pd.read_csv(
+            file_path,
+            skiprows  = WIPO_HEADER_ROWS,
+            dtype     = str,
+            nrows     = 1,      # only need headers — read one row
+        )
+        year_cols = sorted([
+            col for col in df.columns
+            if str(col).strip().isdigit() and len(str(col).strip()) == 4
+        ])
+        if year_cols:
+            return year_cols[0], year_cols[-1]
+    except Exception:
+        pass
+    return 'unknown', 'unknown'
+
+
+def get_pwt_version(file_path: Path) -> str:
+    """
+    Extract PWT version from the filename.
+    e.g. pwt110.dta → '110', pwt100.dta → '100'
+
+    Returns:
+        Version string, or 'unknown' if not detectable.
+    """
+    stem = file_path.stem.lower()  # e.g. 'pwt110'
+    if stem.startswith('pwt') and stem[3:].isdigit():
+        return stem[3:]
+    return 'unknown'
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -125,17 +240,126 @@ def get_b2_key(source: str, year: str = None) -> str:
         return f"bronze/oxford/oxford_{year}_{today}.xlsx"
     elif source == 'wipo':
         # wipo_ingest.py reads from: bronze/wipo_ip/source_{date}.csv
-        # Must match _read_wipo_file() in wipo_ingest.py exactly.
         return f"bronze/wipo_ip/source_{today}.csv"
     elif source == 'pwt':
         # pwt_ingest.py reads from: bronze/pwt/source_{date}.dta
-        # Date-stamped so multiple PWT versions can coexist on B2
-        # and the transformer can reconstruct the correct key from
-        # the ingestion checkpoint's checkpointed_at date.
-        # Must match _read_stata_file() in pwt_ingest.py exactly.
         return f"bronze/pwt/source_{today}.dta"
     else:
         raise ValueError(f"Unknown source: {source}")
+
+
+# ═══════════════════════════════════════════════════════════════
+# LOG KEY CONSTRUCTION
+# ═══════════════════════════════════════════════════════════════
+
+def get_log_key(source: str, file_path: Path,
+                year: str = None,
+                wipo_year_range: tuple = None) -> str:
+    """
+    Return the B2 key for the upload audit log.
+
+    Log structure by source:
+        Oxford: logs/oxford/oxford_{year}_uploaded_{YYYY-MM-DD}.json
+        WIPO:   logs/wipo/wipo_ai_patents_{from}-{to}_uploaded_{YYYY-MM-DD}.json
+        PWT:    logs/pwt/pwt{version}_uploaded_{YYYY-MM-DD}.json
+
+    WHY SOURCE-SPECIFIC SUBFOLDERS:
+        Browsing logs/oxford/ immediately shows all Oxford uploads
+        in chronological order. A flat logs/uploads/ folder mixes
+        all sources together and requires opening files to know
+        which year each Oxford upload covered.
+
+    WHY UPLOADED DATE IN FILENAME:
+        Makes the log sortable by upload date. The data year and
+        upload date are both visible in the filename without
+        opening the file — complete audit information at a glance.
+    """
+    today = date.today().isoformat()
+
+    if source == 'oxford':
+        return f"logs/oxford/oxford_{year}_uploaded_{today}.json"
+
+    elif source == 'wipo':
+        if wipo_year_range and wipo_year_range[0] != 'unknown':
+            yr_from, yr_to = wipo_year_range
+            return (
+                f"logs/wipo/wipo_ai_patents_{yr_from}-{yr_to}"
+                f"_uploaded_{today}.json"
+            )
+        return f"logs/wipo/wipo_ai_patents_uploaded_{today}.json"
+
+    elif source == 'pwt':
+        version = get_pwt_version(file_path)
+        if version != 'unknown':
+            return f"logs/pwt/pwt{version}_uploaded_{today}.json"
+        return f"logs/pwt/pwt_uploaded_{today}.json"
+
+    else:
+        return f"logs/{source}/{source}_uploaded_{today}.json"
+
+
+# ═══════════════════════════════════════════════════════════════
+# UPLOAD LOG
+# ═══════════════════════════════════════════════════════════════
+
+def log_upload(b2: B2Client, source: str, b2_key: str,
+               file_path: Path, year: str = None,
+               wipo_year_range: tuple = None):
+    """
+    Write a JSON audit log of this upload to B2.
+
+    WHAT THE LOG RECORDS:
+        source          → which source (oxford, wipo, pwt)
+        file_path       → full local path on the uploader's machine
+                          (shows which machine and directory the file
+                          came from — useful for tracing provenance)
+        b2_key          → where the file landed on B2
+                          (different from file_path — one is local,
+                          one is cloud)
+        data_year       → for Oxford: the index year of this file
+        data_year_range → for WIPO: first and last year in the CSV
+        pwt_version     → for PWT: the version number (e.g. '110')
+        uploaded_at     → UTC timestamp of the upload
+        hostname        → machine name (identifies which computer)
+        uploaded_by     → git user.name (identifies which team member)
+    """
+    log_entry = {
+        'source':     source,
+        'file_path':  str(file_path),
+        'b2_key':     b2_key,
+        'uploaded_at': datetime.utcnow().isoformat() + 'Z',
+        'hostname':   socket.gethostname(),
+        'uploaded_by': get_git_username(),
+    }
+
+    # Add source-specific fields
+    if source == 'oxford' and year:
+        log_entry['data_year'] = year
+
+    elif source == 'wipo' and wipo_year_range:
+        log_entry['data_year_range'] = {
+            'from': wipo_year_range[0],
+            'to':   wipo_year_range[1],
+        }
+
+    elif source == 'pwt':
+        version = get_pwt_version(file_path)
+        if version != 'unknown':
+            log_entry['pwt_version'] = version
+
+    log_key = get_log_key(
+        source, file_path, year, wipo_year_range
+    )
+
+    try:
+        b2.upload(
+            log_key,
+            json.dumps(log_entry, indent=2).encode('utf-8')
+        )
+        print(f"✓ Upload logged to B2: {log_key}")
+    except Exception as e:
+        # Log failure must never mask the upload success.
+        print(f"⚠ Could not write upload log: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -145,19 +369,8 @@ def get_b2_key(source: str, year: str = None) -> str:
 def trigger_flow(source: str):
     """
     Trigger the Prefect flow for the given source.
-
     Calls the flow function directly — Prefect tracks it as a
     flow run in the UI with full logging and retry handling.
-
-    WHY DIRECT CALL NOT run_deployment():
-        Direct call works without a Prefect deployment setup.
-        The flow is still tracked by Prefect as a flow run.
-        To switch to remote triggering via Prefect API, replace
-        the direct call with run_deployment() here — no other
-        files need to change.
-
-    Args:
-        source: Source name ('oxford', 'wipo', 'pwt').
     """
     print(f"\nTriggering {source} flow...")
 
@@ -172,44 +385,6 @@ def trigger_flow(source: str):
         pwt_flow()
     else:
         raise ValueError(f"No flow defined for source: {source}")
-
-
-# ═══════════════════════════════════════════════════════════════
-# UPLOAD LOG
-# ═══════════════════════════════════════════════════════════════
-
-def log_upload(b2: B2Client, source: str, b2_key: str,
-               file_path: str, year: str = None):
-    """
-    Write a JSON log of this upload to B2 at logs/uploads/.
-    Provides a permanent audit trail of when files were uploaded.
-
-    Log includes: source, file path, B2 key, year (if applicable),
-    upload timestamp, hostname of the machine that ran the script.
-    """
-    log_entry = {
-        'source':     source,
-        'file_path':  str(file_path),
-        'b2_key':     b2_key,
-        'year':       year,
-        'uploaded_at': datetime.utcnow().isoformat(),
-        'hostname':   socket.gethostname(),
-    }
-
-    log_key = (
-        f"logs/uploads/upload_{source}_"
-        f"{date.today().isoformat()}.json"
-    )
-
-    try:
-        b2.upload(
-            log_key,
-            json.dumps(log_entry, indent=2).encode('utf-8')
-        )
-        print(f"✓ Upload logged to B2: {log_key}")
-    except Exception as e:
-        # Log failure must never mask the upload success.
-        print(f"⚠ Could not write upload log to B2: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -238,7 +413,7 @@ def main():
         '--year',
         required = False,
         default  = None,
-        help     = "4-digit year (required for Oxford only)",
+        help     = "4-digit data year (required for Oxford only)",
     )
 
     args   = parser.parse_args()
@@ -256,7 +431,6 @@ def main():
     if not file_path.exists():
         parser.error(f"File not found: {file_path}")
 
-    # Validate file extension matches expected format.
     expected_ext = config['extension']
     if file_path.suffix.lower() != expected_ext:
         print(
@@ -264,15 +438,26 @@ def main():
             f"{source}, got {file_path.suffix}. Proceeding anyway."
         )
 
+    # ── Detect year range for WIPO (before upload) ─────────────
+    wipo_year_range = None
+    if source == 'wipo':
+        wipo_year_range = get_wipo_year_range(file_path)
+        if wipo_year_range[0] != 'unknown':
+            print(
+                f"  Detected WIPO year range: "
+                f"{wipo_year_range[0]}–{wipo_year_range[1]}"
+            )
+
     # ── Read file ──────────────────────────────────────────────
     print(f"\nReading {file_path.name}...")
-    file_bytes = file_path.read_bytes()
+    file_bytes   = file_path.read_bytes()
     file_size_mb = len(file_bytes) / (1024 * 1024)
     print(f"  File size: {file_size_mb:.1f} MB")
 
     # ── Construct B2 key ───────────────────────────────────────
     b2_key = get_b2_key(source, args.year)
     print(f"  B2 destination: {b2_key}")
+    print(f"  Uploaded by:    {get_git_username()} @ {socket.gethostname()}")
 
     # ── Upload to B2 ───────────────────────────────────────────
     print(f"\nUploading to B2...")
@@ -286,7 +471,11 @@ def main():
         raise
 
     # ── Write upload log ───────────────────────────────────────
-    log_upload(b2, source, b2_key, file_path, args.year)
+    log_upload(
+        b2, source, b2_key, file_path,
+        year            = args.year,
+        wipo_year_range = wipo_year_range,
+    )
 
     # ── Trigger Prefect flow ───────────────────────────────────
     print(f"\n{'─' * 50}")
@@ -301,8 +490,6 @@ def main():
         print(f"  for detailed results.")
     except Exception as e:
         print(f"\n✗ {source} pipeline failed: {e}")
-        # Send alert email so the team knows the upload
-        # succeeded but the pipeline failed.
         send_email(
             subject = (
                 f"[ACTION REQUIRED] {source} upload succeeded "
