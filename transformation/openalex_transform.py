@@ -104,11 +104,37 @@ class OpenAlexTransformer(BaseTransformer):
                 "within the last 10 days. Run ingestion first."
             )
 
-        # Extract run_date from the most recent checkpoint's
-        # checkpointed_at timestamp — the date ingestion actually
-        # ran and embedded in all B2 file keys.
-        # WHY NOT date.today(): see world_bank_transform.py comment.
-        self.run_date = rows[0][1].date().isoformat()
+        # Derive run_date by probing B2 for the actual file.
+        #
+        # WHY NOT checkpointed_at.date():
+        #     checkpointed_at is stored in UTC. The ingestor sets
+        #     run_date = date.today() using the local machine clock.
+        #     If the machine is ahead of UTC (e.g. Beirut is UTC+3)
+        #     and the run crosses midnight UTC, checkpointed_at.date()
+        #     is one day behind the actual B2 filename date, causing
+        #     NoSuchKey on every batch.
+        #     Probing B2 directly finds the correct date regardless
+        #     of timezone differences between the ingestor machine
+        #     and the Supabase UTC clock.
+        from datetime import timedelta
+        checkpoint_date = rows[0][1].date()
+        probe_unit      = next(iter({row[0] for row in rows}))
+        self.run_date   = None
+        for delta in [1, 0, -1]:
+            candidate = (checkpoint_date + timedelta(days=delta)).isoformat()
+            try:
+                self.b2.download(f"bronze/openalex/{probe_unit}_{candidate}.json")
+                self.run_date = candidate
+                break
+            except Exception:
+                continue
+        if self.run_date is None:
+            raise ValueError(
+                f"Cannot determine OpenAlex run_date. Probed dates "
+                f"{checkpoint_date - timedelta(days=1)} to "
+                f"{checkpoint_date + timedelta(days=1)}. "
+                f"Check B2 for bronze/openalex/ files."
+            )
         return sorted({row[0] for row in rows})
 
 

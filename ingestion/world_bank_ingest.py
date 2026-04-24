@@ -150,6 +150,56 @@ EDUCATION_ALLOWLIST = {
     'SL.UEM.TOTL.FE.ZS', 'SL.UEM.TOTL.MA.ZS', 'SL.UEM.TOTL.ZS',
 }
 
+# Deprecated-indicator blocklist. These codes still appear in
+# the WB /topic/{id}/indicator listings, but the per-indicator
+# data endpoint returns "The indicator was not found. It may
+# have been deleted or archived." Without this blocklist, every
+# run would flag each of these as a "new unknown" metric and
+# send one email per code. Confirmed deprecated on 2026-04-24
+# by probing each against /indicator/{code}. When WB revives
+# one of these (rare), remove it from this set and re-seed.
+DEPRECATED_INDICATORS = {
+    'AG.AGR.TRAC.NO', 'AG.LND.TRAC.ZS', 'DT.DIS.IDAG.CD',
+    'DT.DOD.MDRI.CD', 'EA.PRD.AGRI.KD',
+    'EG.NSF.ACCS.RU.ZS', 'EG.NSF.ACCS.UR.ZS', 'EG.NSF.ACCS.ZS',
+    'EN.ATM.CO2E.GF.ZS', 'EN.ATM.CO2E.LF.KT',
+    'EN.ATM.METH.AG.KT.CE', 'EN.ATM.METH.AG.ZS',
+    'EN.ATM.METH.EG.KT.CE', 'EN.ATM.METH.EG.ZS',
+    'EN.ATM.NOXE.AG.KT.CE', 'EN.ATM.NOXE.AG.ZS',
+    'EN.ATM.NOXE.EG.KT.CE', 'EN.ATM.NOXE.EG.ZS',
+    'EP.PMP.DESL.CD', 'EP.PMP.SGAS.CD',
+    'IC.ELC.TIME', 'IC.EXP.COST.CD', 'IC.EXP.CSBC.CD',
+    'IC.EXP.CSDC.CD', 'IC.EXP.DOCS', 'IC.EXP.DURS',
+    'IC.EXP.TMBC', 'IC.EXP.TMDC', 'IC.IMP.COST.CD',
+    'IC.IMP.CSBC.CD', 'IC.IMP.CSDC.CD', 'IC.IMP.DOCS',
+    'IC.IMP.DURS', 'IC.IMP.TMBC', 'IC.IMP.TMDC',
+    'IE.PPI.TELE.CD', 'IE.PPN.TELE.CD',
+    'IP.TMK.NRES', 'IP.TMK.RESD', 'IP.TMK.TOTL',
+    'IQ.WEF.PORT.XQ', 'IT.NET.USER.P2', 'IT.PRT.NEWS.P3',
+    'SH.H2O.SAFE.RU.ZS', 'SH.H2O.SAFE.UR.ZS', 'SH.H2O.SAFE.ZS',
+    'SH.STA.ACSN', 'SH.STA.ACSN.RU',
+    'SI.POV.RUGP', 'SI.POV.RUHC',
+    'TM.TAX.MANF.IP.ZS', 'TM.TAX.MANF.SR.ZS',
+    'TM.TAX.MRCH.IP.ZS', 'TM.TAX.MRCH.SR.ZS',
+    'TM.TAX.TCOM.IP.ZS', 'TM.TAX.TCOM.SR.ZS',
+    # --- aggregate-only / stale-since-2013 indicators ---
+    # These codes still resolve in /indicator/{code}, but the
+    # returned data has lastupdated=2013 and contains only
+    # aggregate rows (countryiso3code == ''). After null +
+    # aggregate filtering there are zero country-level rows,
+    # so they're functionally deprecated for this pipeline.
+    'EN.AGR.EMPL',
+    'IE.ICT.PCAP.CD', 'IE.ICT.TOTL.CD', 'IE.ICT.TOTL.GD.ZS',
+    'IS.ROD.DNST.K2', 'IS.ROD.GOOD.MT.K6', 'IS.ROD.PAVE.ZS',
+    'IS.ROD.PSGR.K6', 'IS.ROD.TOTL.KM',
+    'IS.VEH.NVEH.P3', 'IS.VEH.PCAR.P3', 'IS.VEH.ROAD.K1',
+    'IT.NET.BNDW', 'IT.NET.BNDW.PC',
+    'IT.TEL.INVS.CN', 'IT.TEL.INVS.RV.ZS',
+    'IT.TEL.REVN.CN', 'IT.TEL.REVN.GD.ZS',
+    'IT.TEL.TOTL', 'IT.TEL.TOTL.P2',
+    'IT.TVS.HOUS.ZS',
+}
+
 
 class WorldBankIngestor(BaseIngestor):
     """
@@ -725,6 +775,14 @@ class WorldBankIngestor(BaseIngestor):
                             # time so new indicator detection only flags
                             # indicators we actually care about.
                             if topic_id == 4 and code not in EDUCATION_ALLOWLIST:
+                                continue
+                            # Skip known-deprecated indicators. These
+                            # still appear in the topic listing but the
+                            # data endpoint says "not found". Excluding
+                            # them here prevents the unknown-metric
+                            # detector from flagging each as new on
+                            # every run.
+                            if code in DEPRECATED_INDICATORS:
                                 continue
                             api_codes.add(code)
 

@@ -290,17 +290,25 @@ class BaseTransformer(ABC):
             This silently inserts zero rows — all quality checks pass
             but nothing lands in the silver layer.
 
-        WHY DIRECT VALUES INSERT:
-            Inserting directly with VALUES (...), (...) in one statement
-            avoids the session routing issue entirely. All rows in a
-            chunk land in a single SQL statement and a single session.
-            ON CONFLICT DO UPDATE handles upsert semantics correctly
-            without needing a staging table.
+        WHY MULTI-ROW VALUES INSTEAD OF executemany:
+            Passing a list of dicts to conn.execute(text(INSERT ...))
+            runs psycopg2 executemany — one round-trip per row. For a
+            batch with 1000 rows that is 1000 separate INSERT
+            statements. Building one multi-row VALUES (a,b),(a,b),...
+            statement per chunk is one round-trip per chunk — orders
+            of magnitude fewer Supabase calls and far less WAL churn.
 
-        WHY NAMED PARAMS NOT STRING INTERPOLATION:
-            SQLAlchemy named params (:country_iso3 etc.) are passed as
-            a list of dicts to executemany — safe from SQL injection
-            and correctly typed by psycopg2.
+        WHY NAMED PARAMS (NOT STRING INTERPOLATION):
+            Values are bound via SQLAlchemy named params (:c0, :y0, ...).
+            psycopg2 escapes and types them correctly — safe from SQL
+            injection and numeric formatting issues.
+
+        WHY NO conn.commit() INSIDE THE LOOP:
+            The caller (_process_batch via pipeline.py) commits once
+            per batch. Committing per chunk forces Supabase to sync
+            the WAL to disk once per 1000 rows, burning the Small
+            instance's 174 Mbps baseline disk IO bandwidth. One
+            commit per batch is enough for durability.
         """
         if df.empty:
             return
@@ -310,25 +318,35 @@ class BaseTransformer(ABC):
         for i in range(0, len(records), UPSERT_CHUNK_SIZE):
             chunk = records[i:i + UPSERT_CHUNK_SIZE]
 
+            value_placeholders = []
+            params             = {}
+            for j, r in enumerate(chunk):
+                value_placeholders.append(
+                    f"(:c{j}, :y{j}, :p{j}, :m{j}, "
+                    f":v{j}, :s{j}, :r{j})"
+                )
+                params[f"c{j}"] = r['country_iso3']
+                params[f"y{j}"] = int(r['year'])
+                params[f"p{j}"] = r['period']
+                params[f"m{j}"] = r['metric_id']
+                params[f"v{j}"] = r['value']
+                params[f"s{j}"] = r['source_id']
+                params[f"r{j}"] = r['retrieved_at']
+
             conn.execute(
-                text("""
+                text(f"""
                     INSERT INTO standardized.observations (
                         country_iso3, year, period, metric_id,
                         value, source_id, retrieved_at
-                    ) VALUES (
-                        :country_iso3, :year, :period, :metric_id,
-                        :value, :source_id, :retrieved_at
-                    )
+                    ) VALUES {', '.join(value_placeholders)}
                     ON CONFLICT (country_iso3, year, period, metric_id)
                     DO UPDATE SET
                         value        = EXCLUDED.value,
                         source_id    = EXCLUDED.source_id,
                         retrieved_at = EXCLUDED.retrieved_at
                 """),
-                chunk,
+                params,
             )
-
-            conn.commit()
 
 
     # ═══════════════════════════════════════════════════════
@@ -344,41 +362,64 @@ class BaseTransformer(ABC):
             the pooler may route the JOIN query to a different
             session where the temp table doesn't exist.
 
-        WHY VALUES CTE:
+        WHY VALUES CTE WITH NAMED PARAMS:
             A VALUES(...) CTE inlines the primary keys directly
             into the query as a derived table. Everything runs in
             one SQL statement, one session, no temp table needed.
-            This is the standard Session Pooler-safe pattern.
+            Keys are bound via SQLAlchemy named params — safe from
+            SQL injection and correctly typed by psycopg2. Earlier
+            versions used f-string interpolation which broke on
+            quotes in metric_id / period values.
+
+        WHY CHUNKED READ-BACK:
+            For a 1000-row batch the VALUES clause has 1000 tuples.
+            Chunking by READBACK_CHUNKSIZE keeps statements small
+            and avoids exceeding PostgreSQL's parameter limit.
         """
         if df.empty:
             return pd.DataFrame(
                 columns=['country_iso3', 'year', 'period', 'metric_id', 'value']
             )
 
-        # Build a VALUES CTE from the primary keys of the upserted rows.
-        # Each tuple is (country_iso3, year, period, metric_id).
         pk_rows = df[['country_iso3', 'year', 'period', 'metric_id']
                      ].to_dict(orient='records')
 
-        values_clause = ', '.join(
-            f"('{r['country_iso3']}', {int(r['year'])}, "
-            f"'{r['period']}', '{r['metric_id']}')"
-            for r in pk_rows
-        )
+        frames = []
+        for i in range(0, len(pk_rows), READBACK_CHUNKSIZE):
+            chunk = pk_rows[i:i + READBACK_CHUNKSIZE]
 
-        return pd.read_sql(text(f"""
-            WITH pks (country_iso3, year, period, metric_id) AS (
-                VALUES {values_clause}
+            value_placeholders = []
+            params             = {}
+            for j, r in enumerate(chunk):
+                value_placeholders.append(
+                    f"(:c{j}, :y{j}, :p{j}, :m{j})"
+                )
+                params[f"c{j}"] = r['country_iso3']
+                params[f"y{j}"] = int(r['year'])
+                params[f"p{j}"] = r['period']
+                params[f"m{j}"] = r['metric_id']
+
+            frames.append(pd.read_sql(text(f"""
+                WITH pks (country_iso3, year, period, metric_id) AS (
+                    VALUES {', '.join(value_placeholders)}
+                )
+                SELECT o.country_iso3, o.year, o.period,
+                       o.metric_id, o.value
+                FROM standardized.observations o
+                JOIN pks p
+                  ON  o.country_iso3 = p.country_iso3
+                  AND o.year         = p.year::SMALLINT
+                  AND o.period       = p.period
+                  AND o.metric_id    = p.metric_id
+            """), conn, params=params))
+
+        return (
+            pd.concat(frames, ignore_index=True)
+            if frames else
+            pd.DataFrame(
+                columns=['country_iso3', 'year', 'period', 'metric_id', 'value']
             )
-            SELECT o.country_iso3, o.year, o.period,
-                   o.metric_id, o.value
-            FROM standardized.observations o
-            JOIN pks p
-              ON  o.country_iso3 = p.country_iso3
-              AND o.year         = p.year::SMALLINT
-              AND o.period       = p.period
-              AND o.metric_id    = p.metric_id
-        """), conn)
+        )
 
 
     # ═══════════════════════════════════════════════════════
@@ -393,6 +434,12 @@ class BaseTransformer(ABC):
             Same reason as _readback_from_supabase — Session Pooler
             breaks temp table visibility across statements.
             Uses a VALUES CTE instead.
+
+        WHY NAMED PARAMS:
+            The incoming value is bound as a parameter so numeric
+            formatting, apostrophes, and backslashes don't break
+            the query. The earlier chr(39) manual-escape approach
+            was fragile and incorrect for non-quote metacharacters.
         """
         if df.empty:
             return
@@ -401,31 +448,44 @@ class BaseTransformer(ABC):
             ['country_iso3', 'year', 'period', 'metric_id', 'value']
         ].to_dict(orient='records')
 
-        # Build VALUES clause inlining all incoming rows.
-        # Single SQL statement — no temp table, no session issues.
-        values_clause = ', '.join(
-            f"('{r['country_iso3']}', {int(r['year'])}, "
-            f"'{r['period']}', '{r['metric_id']}', "
-            f"'{str(r['value']).replace(chr(39), chr(39)+chr(39))}')"
-            for r in incoming
-        )
+        changed_frames = []
+        for i in range(0, len(incoming), READBACK_CHUNKSIZE):
+            chunk = incoming[i:i + READBACK_CHUNKSIZE]
 
-        changed = pd.read_sql(text(f"""
-            WITH incoming (country_iso3, year, period,
-                           metric_id, new_value) AS (
-                VALUES {values_clause}
-            )
-            SELECT
-                o.country_iso3, o.year, o.period, o.metric_id,
-                o.value AS old_value, t.new_value
-            FROM standardized.observations o
-            JOIN incoming t
-              ON  o.country_iso3 = t.country_iso3
-              AND o.year         = t.year::SMALLINT
-              AND o.period       = t.period
-              AND o.metric_id    = t.metric_id
-            WHERE o.value != t.new_value
-        """), conn)
+            value_placeholders = []
+            params             = {}
+            for j, r in enumerate(chunk):
+                value_placeholders.append(
+                    f"(:c{j}, :y{j}, :p{j}, :m{j}, :v{j})"
+                )
+                params[f"c{j}"] = r['country_iso3']
+                params[f"y{j}"] = int(r['year'])
+                params[f"p{j}"] = r['period']
+                params[f"m{j}"] = r['metric_id']
+                params[f"v{j}"] = str(r['value'])
+
+            changed_frames.append(pd.read_sql(text(f"""
+                WITH incoming (country_iso3, year, period,
+                               metric_id, new_value) AS (
+                    VALUES {', '.join(value_placeholders)}
+                )
+                SELECT
+                    o.country_iso3, o.year, o.period, o.metric_id,
+                    o.value AS old_value, t.new_value
+                FROM standardized.observations o
+                JOIN incoming t
+                  ON  o.country_iso3 = t.country_iso3
+                  AND o.year         = t.year::SMALLINT
+                  AND o.period       = t.period
+                  AND o.metric_id    = t.metric_id
+                WHERE o.value != t.new_value
+            """), conn, params=params))
+
+        changed = (
+            pd.concat(changed_frames, ignore_index=True)
+            if changed_frames else
+            pd.DataFrame()
+        )
 
         if changed.empty:
             return

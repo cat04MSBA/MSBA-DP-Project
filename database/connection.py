@@ -56,6 +56,25 @@ def get_engine():
         # the connection is still alive. Without this, a dropped connection
         # causes a cryptic crash. pool_pre_ping detects it and opens a fresh
         # connection instead. Cost is negligible with NullPool.
+
+        connect_args={
+            # TCP keepalives prevent the Session Pooler from dropping
+            # connections that are idle during long-running executemany()
+            # calls (e.g. upserting 1000 rows takes several seconds with
+            # no TCP activity). Without keepalives, Supabase's pooler
+            # considers the connection idle and closes it, leaving an
+            # 'idle in transaction' zombie on the server side and an
+            # SSL connection closed unexpectedly error on the client.
+            #
+            # keepalives=1:        enable TCP keepalives
+            # keepalives_idle=10:  send first keepalive after 10s idle
+            # keepalives_interval=5: resend every 5s if no response
+            # keepalives_count=3:  drop connection after 3 missed probes
+            "keepalives":          1,
+            "keepalives_idle":     10,
+            "keepalives_interval": 5,
+            "keepalives_count":    3,
+        },
     )
 
     # Set statement_timeout=0 (no limit) on every new connection.
@@ -66,6 +85,14 @@ def get_engine():
     def set_statement_timeout(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()
         cursor.execute("SET statement_timeout = 0")
+        # Also disable idle-in-transaction timeout.
+        # The Session Pooler enforces an idle_in_transaction_session_timeout
+        # separately from statement_timeout. During executemany() for large
+        # batches (1000 rows), psycopg2 sends rows in internal sub-batches.
+        # Between sub-batches the pooler briefly sees the connection as idle
+        # and drops the SSL connection, leaving an 'idle in transaction'
+        # zombie on the server side. Setting this to 0 disables that timeout.
+        cursor.execute("SET idle_in_transaction_session_timeout = 0")
         cursor.close()
 
     return engine

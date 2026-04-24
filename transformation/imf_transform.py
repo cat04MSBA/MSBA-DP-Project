@@ -286,13 +286,35 @@ class IMFTransformer(BaseTransformer):
 
     def _get_since_year(self) -> int:
         """
-        Read last_retrieved from metadata.sources for IMF and
-        return the since_year (last_retrieved year - 5).
-        Used to filter rows in parse() to the 5-year window.
+        Return the earliest year whose rows should be upserted
+        this run.
 
-        Returns:
-            Integer year. Returns 1950 on first ever run.
+        First ever transformation run (silver layer empty for IMF):
+            Return 1950 — load the full available history. The
+            5-year revision window is a bound on how far back
+            upstream values can be REVISED; on first load there
+            is nothing to revise and applying a 5-year cutoff
+            silently drops historical-only indicators (e.g.
+            DEBT1 only has data through 2015).
+
+        Subsequent runs:
+            Return last_retrieved year - 5, i.e. the 5-year
+            revision window. Rows outside the window remain on
+            B2 and in the silver layer untouched.
+
+        WHY self._first_run INSTEAD OF last_retrieved IS NULL:
+            Ingestion sets last_retrieved at the end of its
+            successful run — BEFORE transformation runs — so by
+            the time this method is called on the first ever
+            transformation, last_retrieved is already today.
+            Using last_retrieved here would always cut to a
+            5-year window even on first load. self._first_run
+            is set from transformation_batch checkpoints and
+            correctly identifies the empty-silver-layer case.
         """
+        if self._first_run:
+            return 1950
+
         with self.engine.connect() as conn:
             row = conn.execute(text("""
                 SELECT last_retrieved

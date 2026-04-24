@@ -336,6 +336,34 @@ class BaseIngestor(ABC):
         # ── b. Fetch raw data ──────────────────────────────────
         raw_row_count, df = self.fetch(batch_unit, since_date)
 
+        # ── b′. Empty-source guard ─────────────────────────────
+        # If the source returned no data for this batch unit, the
+        # typical cause is a deprecated / archived / aggregate-only
+        # indicator that still lives in metadata.metric_codes.
+        # Uploading an empty []-JSON to B2 would pollute bronze
+        # storage and later crash transformation's schema validation
+        # (empty DataFrame has no columns). Instead, delete the
+        # in_progress checkpoint and skip silently — the batch
+        # simply produced no data this run.
+        #
+        # WHY NO rejection_summary ROW:
+        #     rejection_summary is for rows that were rejected out
+        #     of data we tried to ingest (constraint values are
+        #     enumerated in schema.sql). Zero rows from source means
+        #     nothing was rejected — there was nothing to reject.
+        #     Audit trail is the stdout [skip] line plus the
+        #     absence of a completed checkpoint.
+        if raw_row_count == 0 or df.empty:
+            print(
+                f"  [skip] {batch_unit} — source returned 0 rows "
+                f"(deprecated / aggregate-only / no country data)"
+            )
+            conn.execute(text("""
+                DELETE FROM ops.checkpoints
+                WHERE checkpoint_id = :cp_id
+            """), {'cp_id': cp_id})
+            return
+
         # ── c. Detect unknown metrics ──────────────────────────
         # Park rows with unregistered metric_ids, email team.
         # Returns clean df with unknown metric rows removed.

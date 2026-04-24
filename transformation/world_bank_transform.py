@@ -176,7 +176,37 @@ class WorldBankTransformer(BaseTransformer):
         #     Reading the date from checkpointed_at guarantees we use
         #     the same date the ingestion script used, regardless of
         #     when transformation runs.
-        self.run_date = rows[0][1].date().isoformat()
+        # Derive run_date by probing B2 for the actual file.
+        #
+        # WHY NOT checkpointed_at.date():
+        #     checkpointed_at is stored in UTC. The ingestor sets
+        #     run_date = date.today() using the local machine clock.
+        #     If the machine is ahead of UTC (e.g. Beirut is UTC+3)
+        #     and the run crosses midnight UTC, checkpointed_at.date()
+        #     is one day behind the actual B2 filename date, causing
+        #     NoSuchKey on every batch.
+        #     Probing B2 directly finds the correct date regardless
+        #     of timezone differences between the ingestor machine
+        #     and the Supabase UTC clock.
+        from datetime import timedelta
+        checkpoint_date = rows[0][1].date()
+        probe_unit      = rows[0][0]   # any completed batch unit works
+        self.run_date   = None
+        for delta in [1, 0, -1]:
+            candidate = (checkpoint_date + timedelta(days=delta)).isoformat()
+            try:
+                self.b2.download(f"bronze/world_bank/{probe_unit}_{candidate}.json")
+                self.run_date = candidate
+                break
+            except Exception:
+                continue
+        if self.run_date is None:
+            raise ValueError(
+                f"Cannot determine World Bank run_date. Probed dates "
+                f"{checkpoint_date - timedelta(days=1)} to "
+                f"{checkpoint_date + timedelta(days=1)}. "
+                f"Check B2 for bronze/world_bank/ files."
+            )
 
         # Return sorted batch_units for deterministic order.
         # Sorting ensures restart skips the same batches

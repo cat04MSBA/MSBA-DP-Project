@@ -132,6 +132,13 @@ class OECDTransformer(BaseTransformer):
 
 
     def _get_since_year(self) -> int:
+        # First-ever run: load full OECD MSTI history from 1981
+        # (MSTI data start). Ingestion already sets last_retrieved
+        # before transformation runs, so last_retrieved-5 would
+        # always produce a narrow window even on first load.
+        if self._first_run:
+            return 1981
+
         with self.engine.connect() as conn:
             row = conn.execute(text("""
                 SELECT last_retrieved FROM metadata.sources

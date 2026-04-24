@@ -589,3 +589,219 @@ Calculating metric coverage...
   Check Prefect UI and Supabase ops.pipeline_runs
   for detailed results.
 19:35:24.780 | INFO    | prefect - Stopping temporary server on http://127.0.0.1:8192
+
+ChloeTabourian@MacBook-Pro-2 MSBA-DP-Project % python3 -m database.upload_to_b2 --source pwt --file data/raw/pwt/pwt110.dta
+
+Reading pwt110.dta...
+  File size: 3.6 MB
+  B2 destination: bronze/pwt/source_2026-04-23.dta
+  Uploaded by:    Chloe Tabourian @ MacBook-Pro-2.local
+
+Uploading to B2...
+✓ Uploaded successfully: bronze/pwt/source_2026-04-23.dta
+✓ Upload logged to B2: logs/pwt/pwt110_uploaded_2026-04-23.json
+
+──────────────────────────────────────────────────
+File uploaded. Triggering pwt pipeline...
+──────────────────────────────────────────────────
+
+
+Triggering pwt flow...
+19:57:29.485 | INFO    | prefect - Starting temporary server on http://127.0.0.1:8607
+See https://docs.prefect.io/v3/concepts/server#how-to-guides for more information on running a dedicated Prefect server.
+19:57:32.594 | INFO    | Flow run 'outstanding-flounder' - Beginning flow run 'outstanding-flounder' for flow 'pwt-flow'
+19:57:32.596 | INFO    | Flow run 'outstanding-flounder' - pwt_flow started
+19:57:32.619 | INFO    | Task run 'pwt-ingestion-d22' - Starting PWT ingestion
+  [start] rgdpe
+  [done]  rgdpe — 11201 rows
+  [start] rgdpo
+  [done]  rgdpo — 11201 rows
+  [start] pop
+  [done]  pop — 11201 rows
+  [start] emp
+  [done]  emp — 10307 rows
+  [start] avh
+  [done]  avh — 5015 rows
+  [start] hc
+  [done]  hc — 9217 rows
+  [start] ccon
+  [done]  ccon — 11201 rows
+  [start] cda
+  [done]  cda — 11201 rows
+  [start] cgdpe
+  [done]  cgdpe — 11201 rows
+  [start] cgdpo
+  [done]  cgdpo — 11201 rows
+  [start] cn
+  [done]  cn — 11028 rows
+  [start] ck
+  [done]  ck — 7747 rows
+  [start] ctfp
+  [done]  ctfp — 6988 rows
+  [start] cwtfp
+  [done]  cwtfp — 6988 rows
+  [start] rgdpna
+  [done]  rgdpna — 11201 rows
+  [start] rconna
+  [done]  rconna — 11201 rows
+  [start] rdana
+  [done]  rdana — 11201 rows
+  [start] rnna
+  [done]  rnna — 11028 rows
+  [start] rkna
+  [done]  rkna — 7747 rows
+  [start] rtfpna
+  [done]  rtfpna — 6988 rows
+  [start] rwtfpna
+  [done]  rwtfpna — 6988 rows
+  [start] labsh
+  [done]  labsh — 8215 rows
+  [start] irr
+  [done]  irr — 8201 rows
+  [start] delta
+  [done]  delta — 11028 rows
+  [start] xr
+  [done]  xr — 11201 rows
+  [start] pl_con
+  [done]  pl_con — 11201 rows
+  [start] pl_da
+  [done]  pl_da — 11201 rows
+  [start] pl_gdpo
+  [done]  pl_gdpo — 11201 rows
+  [start] i_cig
+  [done]  i_cig — 11201 rows
+  [start] i_xm
+  [done]  i_xm — 11201 rows
+  [start] i_xr
+  [done]  i_xr — 11201 rows
+  [start] i_outlier
+  [done]  i_outlier — 11201 rows
+  [start] i_irr
+  [done]  i_irr — 8201 rows
+  [start] cor_exp
+  [done]  cor_exp — 2112 rows
+  [start] csh_c
+  [done]  csh_c — 11201 rows
+  [start] csh_i
+  [done]  csh_i — 11201 rows
+  [start] csh_g
+  [done]  csh_g — 11201 rows
+  [start] csh_x
+  [done]  csh_x — 11201 rows
+  [start] csh_m
+  [done]  csh_m — 11201 rows
+  [start] csh_r
+  [done]  csh_r — 11201 rows
+  [start] pl_c
+  [done]  pl_c — 11201 rows
+  [start] pl_i
+  [done]  pl_i — 11201 rows
+  [start] pl_g
+  [done]  pl_g — 11201 rows
+  [start] pl_x
+  [done]  pl_x — 11201 rows
+  [start] pl_m
+  [done]  pl_m — 11201 rows
+  [start] pl_n
+  [done]  pl_n — 11028 rows
+  [start] pl_k
+  [done]  pl_k — 7747 rows
+✓ pwt ingestion complete. Inserted: 471402, Rejected: 0, Parked: 0 metric(s)
+20:00:32.630 | INFO    | Task run 'pwt-ingestion-d22' - PWT ingestion complete
+20:00:32.631 | INFO    | Task run 'pwt-ingestion-d22' - Finished in state Completed()
+20:00:32.633 | INFO    | Task run 'pwt-transformation-5a7' - Starting PWT transformation
+  [first run] Skipping revision detection and read-back — no existing rows.
+  [start] pl_k
+    [parse] Defensive filter removed 7330 rows
+  [done]  pl_k — 417 rows
+  [start] pl_n
+    [parse] Defensive filter removed 10488 rows
+  [done]  pl_n — 540 rows
+  [start] pl_m
+    [parse] Defensive filter removed 10646 rows
+  [done]  pl_m — 555 rows
+  [start] pl_x
+    [parse] Defensive filter removed 10646 rows
+  [done]  pl_x — 555 rows
+  [start] pl_g
+    [parse] Defensive filter removed 10646 rows
+  [done]  pl_g — 555 rows
+  [start] pl_i
+    [parse] Defensive filter removed 10646 rows
+  [done]  pl_i — 555 rows
+  [start] pl_c
+    [parse] Defensive filter removed 10646 rows
+  [done]  pl_c — 555 rows
+  [start] csh_r
+    [parse] Defensive filter removed 10646 rows
+  [done]  csh_r — 555 rows
+  [start] csh_m
+    [parse] Defensive filter removed 10646 rows
+  [done]  csh_m — 555 rows
+  [start] csh_x
+    [parse] Defensive filter removed 10646 rows
+  [done]  csh_x — 555 rows
+  [start] csh_g
+    [parse] Defensive filter removed 10646 rows
+  [done]  csh_g — 555 rows
+  [start] csh_i
+    [parse] Defensive filter removed 10646 rows
+  [done]  csh_i — 555 rows
+  [start] csh_c
+    [parse] Defensive filter removed 10646 rows
+  [done]  csh_c — 555 rows
+  [start] cor_exp
+    [parse] Defensive filter removed 1933 rows
+  [done]  cor_exp — 179 rows
+  [start] i_irr
+    [parse] Defensive filter removed 7784 rows
+  [done]  i_irr — 417 rows
+  [start] i_outlier
+    [parse] Defensive filter removed 10646 rows
+  [done]  i_outlier — 555 rows
+  [start] i_xr
+    [parse] Defensive filter removed 10646 rows
+  [done]  i_xr — 555 rows
+  [start] i_xm
+    [parse] Defensive filter removed 10646 rows
+  [done]  i_xm — 555 rows
+  [start] i_cig
+    [parse] Defensive filter removed 10646 rows
+  [done]  i_cig — 555 rows
+  [start] pl_gdpo
+    [parse] Defensive filter removed 10646 rows
+  [done]  pl_gdpo — 555 rows
+  [start] pl_da
+    [parse] Defensive filter removed 10646 rows
+  [done]  pl_da — 555 rows
+  [start] pl_con
+    [parse] Defensive filter removed 10646 rows
+  [done]  pl_con — 555 rows
+  [start] xr
+    [parse] Defensive filter removed 10646 rows
+  [done]  xr — 555 rows
+  [start] delta
+    [parse] Defensive filter removed 10488 rows
+  [done]  delta — 540 rows
+  [start] irr
+    [parse] Defensive filter removed 7784 rows
+  [done]  irr — 417 rows
+  [start] labsh
+    [parse] Defensive filter removed 7795 rows
+  [done]  labsh — 420 rows
+  [start] rwtfpna
+    [parse] Defensive filter removed 6628 rows
+  [done]  rwtfpna — 360 rows
+  [start] rtfpna
+    [parse] Defensive filter removed 6628 rows
+  [done]  rtfpna — 360 rows
+  [start] rkna
+    [parse] Defensive filter removed 7330 rows
+  [done]  rkna — 417 rows
+  [start] rnna
+    [parse] Defensive filter removed 10488 rows
+  [done]  rnna — 540 rows
+  [start] rdana
+    [parse] Defensive filter removed 10646 rows
+  [done]  rdana — 555 rows
+  [start] rconna

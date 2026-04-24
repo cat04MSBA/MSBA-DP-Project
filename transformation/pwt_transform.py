@@ -110,6 +110,14 @@ class PWTTransformer(BaseTransformer):
 
 
     def _get_since_year(self) -> int:
+        # First-ever run: load full PWT history. Ingestion sets
+        # last_retrieved before transformation runs, so using
+        # last_retrieved-5 here would cut historical data on the
+        # very first load. PWT 11.0 ends in 2019 — with a 2021
+        # cutoff the first run would drop every row.
+        if self._first_run:
+            return 1950
+
         with self.engine.connect() as conn:
             row = conn.execute(text("""
                 SELECT last_retrieved FROM metadata.sources
