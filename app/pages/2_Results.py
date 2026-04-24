@@ -320,7 +320,11 @@ st.markdown('<hr class="rs">', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 2 — VISUALISATIONS
-# All metric pickers use ONLY metrics present in df — no stale options
+# Chart type is auto-picked per metric type:
+#   binary metrics (values ⊆ {0, 1})  → bar chart with SUM aggregation
+#                                       (count of 1-countries per year)
+#   continuous metrics                 → line chart with MEAN aggregation
+# The user can still override chart type and aggregation per chart.
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown('<div class="section-label">Visualisations</div>', unsafe_allow_html=True)
 
@@ -331,7 +335,27 @@ result_mid_to_name = {
     for mid in result_metric_ids
 }
 
-# Shared year range slider
+# ── Metric type detection ─────────────────────────────────────────────────────
+# A metric is classified binary iff its numeric values in this result
+# set are strictly in {0, 1}. Anything else (including metrics with a
+# tiny discrete set of values that happens not to include 0/1) is
+# treated as continuous. The detection is per-result so the same metric
+# could classify differently in different queries — that's correct
+# behavior: a 0/1-valued indicator filtered to countries where it's
+# always 1 isn't meaningfully binary for that query.
+BINARY_ALLOWED = {0, 1, 0.0, 1.0}
+
+def classify_metric(metric_id):
+    vals = df[df['metric_id'] == metric_id]['value_num'].dropna()
+    if vals.empty:
+        return 'continuous'
+    return 'binary' if set(vals.unique()).issubset(BINARY_ALLOWED) else 'continuous'
+
+metric_type_map    = {mid: classify_metric(mid) for mid in result_metric_ids}
+continuous_metrics = [m for m in result_metric_ids if metric_type_map[m] == 'continuous']
+binary_metrics     = [m for m in result_metric_ids if metric_type_map[m] == 'binary']
+
+# Shared year range slider (used by both charts)
 available_years = sorted(df['year'].unique().tolist())
 if len(available_years) > 1:
     chart_year_range = st.select_slider(
@@ -342,6 +366,15 @@ if len(available_years) > 1:
 else:
     chart_year_range = (available_years[0], available_years[0])
     st.caption(f"Single year available: {available_years[0]}")
+
+if binary_metrics and continuous_metrics:
+    st.caption(
+        f"Detected {len(continuous_metrics)} continuous metric(s) "
+        f"and {len(binary_metrics)} binary metric(s). "
+        "Chart defaults are auto-picked by type — override freely below."
+    )
+elif binary_metrics:
+    st.caption(f"All {len(binary_metrics)} selected metric(s) are binary — defaulting to frequency bar charts.")
 
 chart_df = df[df['year'].between(chart_year_range[0], chart_year_range[1])].copy()
 
@@ -365,7 +398,13 @@ def make_chart(chart_type, cdf, metrics_sel, agg_fn, country_filter=None):
         agg = agg.dropna(subset=['val'])
         if agg.empty:
             return None
-        label_y = f"{agg_fn.title()} value"
+        # Label the y-axis more helpfully when binary metrics are summed
+        # — 'Sum value' reads as 'count of 1-countries' in that context.
+        all_binary = all(metric_type_map.get(m) == 'binary' for m in metrics_sel)
+        if chart_type == "Bar chart" and agg_fn == 'sum' and all_binary:
+            label_y = "Countries with value = 1"
+        else:
+            label_y = f"{agg_fn.title()} value"
         if chart_type == "Line chart":
             fig = px.line(agg, x='year', y='val', color='metric_name', markers=True,
                           labels={'val': label_y, 'year': 'Year', 'metric_name': 'Metric'},
@@ -403,21 +442,32 @@ def make_chart(chart_type, cdf, metrics_sel, agg_fn, country_filter=None):
     fig.update_yaxes(gridcolor='#f0f4f8')
     return fig
 
-def render_chart(chart_num, default_metrics):
+# Fragment decorator — each chart reruns independently when its own
+# controls change, instead of forcing a full page rerun that re-executes
+# the Supabase fetch and the summary-stats groupby. Graceful fallback
+# to a no-op decorator on older Streamlit versions.
+_fragment = getattr(st, 'fragment', None) or getattr(st, 'experimental_fragment', None) or (lambda f: f)
+
+def _build_chart_section(chart_num, default_metrics, default_type, default_agg):
     st.markdown(f"**Chart {chart_num}**")
     ca, cb, cc, cd = st.columns([2, 3, 2, 1])
 
-    chart_types = ["Line chart", "Bar chart", "Scatter plot"]
-    if chart_num == 2:
-        chart_types = ["Bar chart", "Line chart", "Scatter plot"]
+    # Order chart_types so the preferred default is first (Streamlit
+    # selectbox picks index 0 on first render).
+    all_types = ["Line chart", "Bar chart", "Scatter plot"]
+    ordered_types = [default_type] + [t for t in all_types if t != default_type]
+    all_aggs = ["Mean", "Sum", "Median"]
+    ordered_aggs = [default_agg] + [a for a in all_aggs if a != default_agg]
 
     with ca:
-        ctype = st.selectbox("Chart type", chart_types, key=f"c{chart_num}_type")
+        ctype = st.selectbox("Chart type", ordered_types, key=f"c{chart_num}_type")
     with cb:
         sel = st.multiselect(
             "Metrics (max 5)",
             options=result_metric_ids,
-            format_func=lambda x: result_mid_to_name.get(x, x),
+            format_func=lambda x: result_mid_to_name.get(x, x) + (
+                " · binary" if metric_type_map.get(x) == 'binary' else ""
+            ),
             default=default_metrics[:min(len(default_metrics), 3)],
             max_selections=5,
             key=f"c{chart_num}_metrics",
@@ -430,11 +480,11 @@ def render_chart(chart_num, default_metrics):
             key=f"c{chart_num}_countries",
         )
     with cd:
-        agg = st.selectbox("Aggregate", ["Mean", "Sum", "Median"], key=f"c{chart_num}_agg")
+        agg = st.selectbox("Aggregate", ordered_aggs, key=f"c{chart_num}_agg")
 
     if not sel:
         st.markdown('<div class="info-box">ℹ Select at least one metric.</div>', unsafe_allow_html=True)
-        return sel
+        return
 
     fig = make_chart(ctype, chart_df, sel, agg.lower(), cfilt or None)
     if fig == "need_two":
@@ -443,18 +493,49 @@ def render_chart(chart_num, default_metrics):
         st.markdown('<div class="info-box">ℹ No numeric data for this combination.</div>', unsafe_allow_html=True)
     else:
         st.plotly_chart(fig, use_container_width=True)
-    return sel
 
-# Chart 1 — default: first 3 metrics with data
-c1_sel = render_chart(1, result_metric_ids[:min(3, len(result_metric_ids))])
+# Chart 1 — default: continuous metrics on a line chart
+c1_defaults = (continuous_metrics or result_metric_ids)[:3]
+c1_type     = "Line chart" if continuous_metrics else "Bar chart"
+c1_agg      = "Mean"       if continuous_metrics else "Sum"
+
+@_fragment
+def chart_1_section():
+    _build_chart_section(1, c1_defaults, c1_type, c1_agg)
+
+chart_1_section()
 
 st.markdown('<hr class="rs">', unsafe_allow_html=True)
 
-# Chart 2 — default: metrics not already in chart 1 (encourage comparison)
-c2_defaults = [m for m in result_metric_ids if m not in (c1_sel or [])]
-if not c2_defaults:
-    c2_defaults = result_metric_ids[:min(2, len(result_metric_ids))]
-render_chart(2, c2_defaults)
+# Chart 2 — default picks the *other* metric type so the two charts
+# complement rather than duplicate each other.
+#   - binary metrics present           → bar chart (count of 1s per year)
+#   - else 2+ continuous remaining     → scatter comparing two metrics
+#   - else                             → second line chart
+if binary_metrics:
+    c2_defaults = binary_metrics[:3]
+    c2_type     = "Bar chart"
+    c2_agg      = "Sum"
+else:
+    remaining = [m for m in continuous_metrics if m not in c1_defaults]
+    if len(remaining) >= 2:
+        c2_defaults = remaining[:2]
+        c2_type     = "Scatter plot"
+        c2_agg      = "Mean"
+    elif continuous_metrics:
+        c2_defaults = continuous_metrics[:min(3, len(continuous_metrics))]
+        c2_type     = "Line chart"
+        c2_agg      = "Mean"
+    else:
+        c2_defaults = result_metric_ids[:2]
+        c2_type     = "Bar chart"
+        c2_agg      = "Mean"
+
+@_fragment
+def chart_2_section():
+    _build_chart_section(2, c2_defaults, c2_type, c2_agg)
+
+chart_2_section()
 
 st.markdown('<hr class="rs">', unsafe_allow_html=True)
 

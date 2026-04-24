@@ -229,11 +229,26 @@ if selected_sources:
 else:
     st.caption(f"{len(display_metrics)} metrics with available data across all ingested sources.")
 
-# Pre-filter the metrics list by name (case-insensitive substring match)
-# so the multiselect shows only relevant options. Streamlit's native
-# multiselect closes after every pick; with 300+ metrics that means
-# scroll-and-reopen per selection. Typing "gdp" here narrows the list to
-# ~10 items, so picking 5 of them feels like a checkbox list.
+# ── Metric picker as checkbox table ───────────────────────────────────────────
+# The prior multiselect had a real UX problem: Streamlit's native dropdown
+# closes after every selection, so with 300+ metrics picking 5 of them
+# meant scroll-reopen-scroll-reopen. A data_editor with a checkbox column
+# is the right primitive here — all rows stay visible, multiple checks
+# happen without the component ever closing, and the metadata columns
+# (source, unit, coverage years, country count) let researchers decide
+# what's useful at a glance. Selection state persists in session so prior
+# picks survive search/source filter changes.
+SEL_KEY = '_selected_metric_ids'
+if SEL_KEY not in st.session_state:
+    st.session_state[SEL_KEY] = []
+
+# Drop any prior selections that no longer appear in the current
+# source-filtered set — e.g. user unchecked IMF after picking IMF metrics.
+valid_ids_in_view = set(display_metrics['metric_id'])
+st.session_state[SEL_KEY] = [m for m in st.session_state[SEL_KEY] if m in valid_ids_in_view]
+
+# Optional text search narrows the visible rows. Checked rows that
+# fall out of view still persist in session_state (no silent deselect).
 metric_search = st.text_input(
     "Search metrics",
     placeholder="Type to filter (e.g. 'gdp', 'co2', 'trade')",
@@ -241,30 +256,64 @@ metric_search = st.text_input(
     label_visibility="collapsed",
 )
 
+all_rows = display_metrics.set_index('metric_id').copy()
 if metric_search and metric_search.strip():
     q = metric_search.strip().lower()
-    shown_labels = [l for l in ordered_labels if q in l.lower()]
-    st.caption(f"{len(shown_labels)} metric(s) match \"{metric_search}\".")
+    mask = (
+        all_rows['metric_name'].str.lower().str.contains(q, na=False) |
+        all_rows['source_id'].str.lower().str.contains(q, na=False) |
+        all_rows.index.to_series().str.lower().str.contains(q, na=False)
+    )
+    visible_rows = all_rows[mask]
+    st.caption(f"{len(visible_rows)} metric(s) match \"{metric_search}\".")
 else:
-    shown_labels = ordered_labels
+    visible_rows = all_rows
 
-# Keep already-selected labels even if they don't match the current search,
-# so filtering the search box never silently drops prior selections.
-prev_labels           = st.session_state.get('_selected_metric_labels', [])
-valid_prev            = [l for l in prev_labels if l in label_to_id]
-options_for_multisel  = list(dict.fromkeys(valid_prev + shown_labels))
+disp = visible_rows.copy()
+disp.insert(0, 'Select', disp.index.isin(st.session_state[SEL_KEY]))
+disp = disp[['Select', 'source_id', 'metric_name', 'unit',
+             'available_from', 'available_to', 'country_count']]
 
-selected_metric_labels = st.multiselect(
-    label="Metrics",
-    options=options_for_multisel,
-    default=valid_prev or None,
-    placeholder="Search and select metrics...",
-    label_visibility="collapsed",
-    help="No selection limit. On the results page, charts allow max 5 metrics each.",
+edited = st.data_editor(
+    disp,
+    use_container_width=True,
+    hide_index=True,
+    height=380,
+    column_config={
+        'Select':         st.column_config.CheckboxColumn(" ", width="small"),
+        'source_id':      st.column_config.TextColumn("Source", width="small"),
+        'metric_name':    st.column_config.TextColumn("Metric", width="large"),
+        'unit':           st.column_config.TextColumn("Unit", width="small"),
+        'available_from': st.column_config.NumberColumn("From", format="%d", width="small"),
+        'available_to':   st.column_config.NumberColumn("To", format="%d", width="small"),
+        'country_count':  st.column_config.NumberColumn("Countries", format="%d", width="small"),
+    },
+    disabled=['source_id', 'metric_name', 'unit',
+              'available_from', 'available_to', 'country_count'],
+    key="metric_editor",
 )
+
+# Sync back: only the rows currently visible can flip state this rerun;
+# invisible (filtered-out) selections are preserved from session_state.
+visible_ids     = set(visible_rows.index)
+now_checked     = set(edited[edited['Select']].index)
+now_unchecked   = visible_ids - now_checked
+
+prior = set(st.session_state[SEL_KEY])
+prior -= now_unchecked
+prior |= now_checked
+st.session_state[SEL_KEY] = sorted(prior)
+
+selected_metric_ids    = list(st.session_state[SEL_KEY])
+# Keep labels around for the Results page's "missing metrics" warning.
+id_to_label            = {v: k for k, v in label_to_id.items()}
+selected_metric_labels = [id_to_label[m] for m in selected_metric_ids if m in id_to_label]
 st.session_state['_selected_metric_labels'] = selected_metric_labels
 
-selected_metric_ids = [label_to_id[l] for l in selected_metric_labels if l in label_to_id]
+st.caption(
+    f"**{len(selected_metric_ids)}** metric(s) selected"
+    + (f" (showing {len(visible_rows)} of {len(all_rows)})" if metric_search else "")
+)
 
 if len(selected_metric_ids) > 20:
     st.markdown(
