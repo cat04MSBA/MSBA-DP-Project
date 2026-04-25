@@ -492,7 +492,7 @@ def _build_chart_section(chart_num, default_metrics, default_type, default_agg):
     elif fig is None:
         st.markdown('<div class="info-box">ℹ No numeric data for this combination.</div>', unsafe_allow_html=True)
     else:
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key=f"c{chart_num}_plotly")
 
 # Chart 1 — default: continuous metrics on a line chart
 c1_defaults = (continuous_metrics or result_metric_ids)[:3]
