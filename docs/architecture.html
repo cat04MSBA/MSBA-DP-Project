@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI & Economic Data — Architecture Explorer</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --surface: #0d1220;
+    --surface-2: #121829;
+    --border: #1e2d45;
+    --border-hover: #3d5578;
+    --text: #e2e8f0;
+    --text-dim: #8896b0;
+    --text-faint: #4a5568;
+    --accent: #63b3ed;
+    --accent-glow: rgba(99,179,237,0.18);
+    --orch: #b794f4;
+    --orch-bg: rgba(85,60,154,0.18);
+    --orch-bd: rgba(183,148,244,0.45);
+    --bronze: #f6ad55;
+    --bronze-bg: rgba(221,107,32,0.15);
+    --bronze-bd: rgba(246,173,85,0.5);
+    --silver: #68d391;
+    --silver-bg: rgba(72,187,120,0.15);
+    --silver-bd: rgba(104,211,145,0.5);
+    --gold: #f6e05e;
+    --gold-bg: rgba(236,201,75,0.15);
+    --gold-bd: rgba(246,224,94,0.5);
+    --gate: #f6ad55;
+    --gate-bg: rgba(246,173,85,0.12);
+    --gate-bd: rgba(246,173,85,0.45);
+    --email: #fc8181;
+    --log: #d53f8c;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: 'DM Sans', sans-serif; font-weight: 300; line-height: 1.55;
+  }
+  .container { max-width: 1700px; margin: 0 auto; padding: 40px 32px 80px; }
+
+  .hero { border-bottom: 1px solid var(--border); padding-bottom: 28px; margin-bottom: 32px; }
+  .tag {
+    display: inline-block; font-size: 11px; font-weight: 500;
+    letter-spacing: 3px; text-transform: uppercase; color: var(--accent);
+    border: 1px solid rgba(99,179,237,0.3); padding: 6px 14px;
+    border-radius: 2px; margin-bottom: 18px;
+  }
+  h1 {
+    font-family: 'DM Serif Display', serif; font-size: clamp(34px, 4vw, 50px);
+    font-weight: 400; line-height: 1.1; margin: 0 0 10px 0; color: #f0f4ff;
+  }
+  h1 em { font-style: italic; color: #93c5fd; }
+  .hero p { font-size: 14px; color: var(--text-dim); max-width: 820px; margin: 10px 0 0 0; }
+
+  .controls {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 14px 18px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 3px; margin-bottom: 24px; font-size: 13px;
+  }
+  .btn {
+    background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+    font-family: inherit; font-size: 12px; letter-spacing: 0.4px;
+    padding: 6px 12px; border-radius: 2px; cursor: pointer; transition: all 0.15s;
+  }
+  .btn:hover { color: var(--accent); border-color: var(--border-hover); background: var(--surface-2); }
+  .btn.primary { background: var(--accent-glow); color: var(--accent); border-color: rgba(99,179,237,0.4); }
+
+  .architecture {
+    display: grid;
+    grid-template-columns:
+      [src]      minmax(120px, 1fr)
+      [a1]       46px
+      [ing]      minmax(170px, 1.4fr)
+      [a2]       46px
+      [qc1]      minmax(110px, 0.9fr)
+      [a3]       46px
+      [tr]       minmax(170px, 1.4fr)
+      [a4]       46px
+      [qc2]      minmax(110px, 0.9fr)
+      [a5]       46px
+      [cov]      minmax(120px, 1fr)
+      [a6]       46px
+      [app]      minmax(160px, 1.3fr);
+    grid-auto-rows: auto;
+    gap: 0;
+    align-items: stretch;
+  }
+
+  .r-orch     { grid-row: 1; }
+  .r-orch-arr { grid-row: 2; min-height: 36px; }
+  .r-pipe     { grid-row: 3; }
+  .r-pipe-arr { grid-row: 4; min-height: 36px; }
+  .r-storage  { grid-row: 5; }
+
+  .c-src   { grid-column: src; }
+  .c-a1    { grid-column: a1; }
+  .c-ing   { grid-column: ing; }
+  .c-a2    { grid-column: a2; }
+  .c-qc1   { grid-column: qc1; }
+  .c-a3    { grid-column: a3; }
+  .c-tr    { grid-column: tr; }
+  .c-a4    { grid-column: a4; }
+  .c-qc2   { grid-column: qc2; }
+  .c-a5    { grid-column: a5; }
+  .c-cov   { grid-column: cov; }
+  .c-a6    { grid-column: a6; }
+  .c-app   { grid-column: app; }
+
+  .arrow-h, .arrow-v {
+    position: relative;
+    align-self: center;
+    justify-self: stretch;
+  }
+  .arrow-h {
+    height: 36px;
+    display: flex;
+    align-items: center;
+    padding: 0 4px;
+  }
+  .arrow-h::before {
+    content: '';
+    flex: 1;
+    height: 2px;
+    background: var(--accent);
+    opacity: 0.55;
+  }
+  .arrow-h::after {
+    content: '';
+    width: 0; height: 0;
+    border-left: 9px solid var(--accent);
+    border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+    margin-left: -1px;
+    opacity: 0.55;
+  }
+  .arrow-v {
+    height: 100%;
+    min-height: 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: stretch;
+  }
+  .arrow-v::before {
+    content: '';
+    width: 2px;
+    flex: 1;
+    background: var(--orch);
+    opacity: 0.5;
+  }
+  .arrow-v::after {
+    content: '';
+    width: 0; height: 0;
+    border-top: 9px solid var(--orch);
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    margin-top: -1px;
+    opacity: 0.55;
+  }
+  .arrow-v.storage::before { background: var(--accent); }
+  .arrow-v.storage::after  { border-top-color: var(--accent); }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color 0.18s, transform 0.12s, box-shadow 0.18s;
+    position: relative;
+    align-self: stretch;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .card:hover { border-color: var(--border-hover); box-shadow: 0 4px 14px rgba(99,179,237,0.10); }
+  .card .title {
+    font-weight: 500; font-size: 13px; letter-spacing: 0.2px;
+    color: var(--text); display: flex; align-items: center; gap: 6px;
+  }
+  .card .subtitle {
+    font-size: 11px; color: var(--text-dim);
+    letter-spacing: 0.2px; margin-top: 4px;
+  }
+  .card .toggle-icon {
+    position: absolute; top: 12px; right: 14px;
+    font-size: 14px; color: var(--text-faint);
+    transition: transform 0.2s, color 0.2s;
+  }
+  .card:hover .toggle-icon { color: var(--accent); }
+  .card.open .toggle-icon { transform: rotate(45deg); color: var(--accent); }
+
+  .card.orch    { background: var(--orch-bg);   border-color: var(--orch-bd); }
+  .card.bronze  { background: var(--bronze-bg); border-color: var(--bronze-bd); }
+  .card.silver  { background: var(--silver-bg); border-color: var(--silver-bd); }
+  .card.gold    { background: var(--gold-bg);   border-color: var(--gold-bd); }
+  .card.gate    { background: var(--gate-bg);   border-color: var(--gate-bd); padding: 12px 10px; }
+  .card.gate .title { font-size: 12px; justify-content: center; text-align: center; }
+  .card.gate .subtitle { font-size: 10px; text-align: center; }
+  .card.app     { background: rgba(99,179,237,0.10); border-color: rgba(99,179,237,0.45); }
+
+  .orch-bar {
+    display: flex;
+    background: linear-gradient(90deg, transparent, var(--orch-bg) 8%, var(--orch-bg) 92%, transparent);
+    border-radius: 6px;
+    padding: 8px;
+    gap: 8px;
+    grid-row: 1;
+    grid-column: ing / app;
+    border: 1px dashed rgba(183,148,244,0.25);
+  }
+  .orch-bar .card.orch {
+    flex: 1;
+    margin: 0;
+  }
+  .orch-bar .card.orch.ingest-side { flex: 1.4; }
+  .orch-bar .card.orch.transform-side { flex: 2.6; }
+
+  .expanded-content {
+    max-height: 0;
+    opacity: 0;
+    overflow-x: hidden;
+    overflow-y: hidden;
+    transition: max-height 0.35s ease, opacity 0.2s ease, margin-top 0.2s, padding-top 0.2s;
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+  .card.open .expanded-content {
+    max-height: 3000px;
+    opacity: 1;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .step {
+    display: flex;
+    gap: 10px;
+    padding: 8px 10px;
+    margin: 6px 0;
+    background: rgba(0,0,0,0.25);
+    border-radius: 3px;
+    border-left: 2px solid var(--border);
+    font-size: 11.5px;
+    min-width: 0;
+  }
+  .step .num {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--accent);
+    font-weight: 500;
+    flex-shrink: 0;
+    min-width: 16px;
+    font-size: 11px;
+  }
+  .step .body {
+    flex: 1 1 0;
+    min-width: 0;
+    color: var(--text-dim);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .step .body strong { color: var(--text); display: inline; font-weight: 500; }
+  .step .meta {
+    margin-top: 4px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .meta-pill {
+    font-size: 9.5px;
+    letter-spacing: 0.4px;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    max-width: 100%;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    line-height: 1.4;
+  }
+  .meta-pill.log {
+    background: rgba(213,63,140,0.14);
+    color: var(--log);
+    border: 1px solid rgba(213,63,140,0.3);
+  }
+  .meta-pill.email {
+    background: rgba(252,129,129,0.14);
+    color: var(--email);
+    border: 1px solid rgba(252,129,129,0.3);
+  }
+  .meta-pill.ok {
+    background: rgba(104,211,145,0.14);
+    color: var(--silver);
+    border: 1px solid rgba(104,211,145,0.3);
+  }
+  .meta-pill code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    background: transparent;
+    padding: 0;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+  .group-label {
+    font-size: 9.5px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--text-faint); margin: 10px 0 4px 0;
+  }
+  .group-label:first-child { margin-top: 0; }
+
+  .card.gate .step { padding: 6px 8px; }
+  .card.gate .meta-pill { font-size: 9px; padding: 2px 6px; }
+  .card.gate .step .body { font-size: 10.5px; }
+
+  .legend {
+    display: flex; gap: 14px; flex-wrap: wrap;
+    margin-top: 28px; padding: 16px 20px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 3px; font-size: 12px;
+  }
+  .legend strong { color: var(--text); font-weight: 500; }
+
+  footer {
+    border-top: 1px solid var(--border); margin-top: 60px; padding-top: 28px;
+    font-size: 12px; color: var(--text-faint); text-align: center;
+  }
+
+  @media (max-width: 1300px) {
+    .arrow-h::before { opacity: 0.4; }
+  }
+  @media print {
+    body { background: white; color: black; }
+    .card { background: white; border-color: #ccc; }
+    .card.open .expanded-content { max-height: none; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <section class="hero">
+    <div class="tag">MSBA 305 · AUB · 2026</div>
+    <h1>The <em>journey</em> of one data point.</h1>
+    <p>
+      Read left-to-right. Orchestration sits on top, controlling Ingestion through Coverage.
+      Quality checks gate every transition. Storage zones sit below the stages that write to them.
+      Click any card to see exactly what happens, what gets logged, and what triggers an email.
+    </p>
+  </section>
+
+  <div class="controls">
+    <span style="color:var(--text-dim);">Bulk:</span>
+    <button class="btn primary" onclick="expandAll()">Expand all</button>
+    <button class="btn" onclick="collapseAll()">Collapse all</button>
+    <span style="margin-left:auto; color: var(--text-faint); font-size: 12px;">Click any card to toggle in place</span>
+  </div>
+
+  <div class="architecture">
+
+    <div class="orch-bar">
+      <div class="card orch ingest-side" data-card>
+        <div class="title">🎼 Orchestration · Ingestion <span class="toggle-icon">+</span></div>
+        <div class="subtitle">cron + manual triggers · controls Ingestion task</div>
+        <div class="expanded-content">
+          <div class="group-label">Triggers</div>
+          <div class="step"><span class="num">①</span><div class="body">
+            <strong>Monthly cron</strong> · 1st of month · 02:00 UTC · runs <code>api_flow()</code> for all 4 API sources
+            <div class="meta">
+              <span class="meta-pill log">→ logs: <code>ops.pipeline_runs</code></span>
+            </div>
+          </div></div>
+          <div class="step"><span class="num">②</span><div class="body">
+            <strong>Manual upload</strong> · <code>upload_to_b2.py --source &lt;name&gt;</code> · for Oxford / WIPO / PWT
+            <div class="meta">
+              <span class="meta-pill log">→ logs: <code>ops.pipeline_runs</code></span>
+            </div>
+          </div></div>
+          <div class="group-label">Reliability</div>
+          <div class="step"><span class="num">③</span><div class="body">
+            <strong>3 retries</strong> with 60s · 5min · 10min backoff per task
+            <div class="meta">
+              <span class="meta-pill log">→ logs each retry: <code>ops.pipeline_runs</code></span>
+            </div>
+          </div></div>
+          <div class="step"><span class="num">④</span><div class="body">
+            <strong>on_failure hook</strong> fires after retries exhausted
+            <div class="meta">
+              <span class="meta-pill email">📧 CRITICAL email to team</span>
+            </div>
+          </div></div>
+        </div>
+      </div>
+      <div class="card orch transform-side" data-card>
+        <div class="title">🎼 Orchestration · Transform + Coverage <span class="toggle-icon">+</span></div>
+        <div class="subtitle">runs after ingestion task succeeds · controls both stages</div>
+        <div class="expanded-content">
+          <div class="group-label">Sequencing</div>
+          <div class="step"><span class="num">①</span><div class="body">
+            <strong>Sequential after ingestion</strong> · transform task runs only when ingestion completes successfully
+            <div class="meta">
+              <span class="meta-pill log">→ logs: <code>ops.pipeline_runs</code></span>
+            </div>
+          </div></div>
+          <div class="step"><span class="num">②</span><div class="body">
+            <strong>Sequential across sources</strong> · transformation tasks for different sources don't run in parallel
+            <div class="meta"><span class="meta-pill ok">prevents Supabase pool saturation</span></div>
+          </div></div>
+          <div class="step"><span class="num">③</span><div class="body">
+            <strong>Coverage task</strong> follows transformation immediately · refreshes <code>metadata.metrics</code> + materialized views in the curated layer
+            <div class="meta">
+              <span class="meta-pill log">→ writes: <code>metadata.metrics</code> · <code>curated.*</code></span>
+            </div>
+          </div></div>
+          <div class="group-label">Reliability</div>
+          <div class="step"><span class="num">④</span><div class="body">
+            <strong>3 retries</strong> with same backoff as ingestion
+            <div class="meta">
+              <span class="meta-pill email">📧 on_failure → CRITICAL email</span>
+            </div>
+          </div></div>
+          <div class="step"><span class="num">⑤</span><div class="body">
+            <strong>Monthly summary email</strong> at end of master <code>api_flow()</code> · per-source status, rows in/rejected, retries used
+            <div class="meta"><span class="meta-pill email">📧 INFORMATIONAL</span></div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-v r-orch-arr c-ing"></div>
+    <div class="arrow-v r-orch-arr c-tr"></div>
+    <div class="arrow-v r-orch-arr c-cov"></div>
+
+    <div class="card r-pipe c-src" data-card>
+      <div class="title">🌐 Sources <span class="toggle-icon">+</span></div>
+      <div class="subtitle">7 providers</div>
+      <div class="expanded-content">
+        <div class="group-label">API · monthly cron</div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>World Bank WDI</strong> · 362 economic indicators · REST API</div></div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>IMF DataMapper</strong> · 132 macro indicators · REST API</div></div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>OpenAlex</strong> · AI publications by country/year · REST API</div></div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>OECD MSTI</strong> · R&D + S&T statistics · REST API</div></div>
+        <div class="group-label">File · manual upload</div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>Oxford GAIRI</strong> · AI readiness · .xlsx per year</div></div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>WIPO Patents</strong> · AI patent filings · .csv</div></div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>Penn World Tables</strong> · productivity · .dta</div></div>
+      </div>
+    </div>
+
+    <div class="arrow-h r-pipe c-a1"></div>
+
+    <div class="card r-pipe c-ing" data-card>
+      <div class="title">📥 Ingestion <span class="toggle-icon">+</span></div>
+      <div class="subtitle">fetch · serialize · upload</div>
+      <div class="expanded-content">
+        <div class="step"><span class="num">①</span><div class="body">
+          <strong>Open run</strong> insert row in pipeline_runs, status=running
+          <div class="meta"><span class="meta-pill log">→ <code>ops.pipeline_runs</code></span></div>
+        </div></div>
+        <div class="step"><span class="num">②</span><div class="body">
+          <strong>Detect new metrics</strong> compare API list vs <code>metric_codes</code>
+          <div class="meta">
+            <span class="meta-pill log">→ B2 <code>parked/</code></span>
+            <span class="meta-pill email">📧 INFO email · "new indicator"</span>
+          </div>
+        </div></div>
+        <div class="step"><span class="num">③</span><div class="body">
+          <strong>Skip done batches</strong> read completed checkpoints (last 10 days) · enables restart-after-crash
+          <div class="meta"><span class="meta-pill log">read: <code>ops.checkpoints</code></span></div>
+        </div></div>
+        <div class="step"><span class="num">④</span><div class="body">
+          <strong>For each batch</strong> write_start (status=in_progress) → fetch → parse
+          <div class="meta"><span class="meta-pill log">→ <code>ops.checkpoints</code></span></div>
+        </div></div>
+        <div class="step"><span class="num">⑤</span><div class="body">
+          <strong>Empty-source guard</strong> if 0 rows from source → delete checkpoint, skip B2 upload
+          <div class="meta"><span class="meta-pill ok">silent · no email · audit via stdout</span></div>
+        </div></div>
+        <div class="step"><span class="num">⑥</span><div class="body">
+          <strong>Serialize + upload to B2</strong> JSON file at <code>bronze/&lt;source&gt;/&lt;metric&gt;_&lt;date&gt;.json</code>
+        </div></div>
+        <div class="step"><span class="num">⑦</span><div class="body">
+          <strong>QC fires</strong> → see Quality Check ➀ for details
+        </div></div>
+        <div class="step"><span class="num">⑧</span><div class="body">
+          <strong>write_complete</strong> store verified checksum + row count
+          <div class="meta"><span class="meta-pill log">update: <code>ops.checkpoints</code></span></div>
+        </div></div>
+        <div class="step"><span class="num">⑨</span><div class="body">
+          <strong>Close run</strong> flush rejection_summary, update <code>last_retrieved</code>
+          <div class="meta"><span class="meta-pill log">→ <code>ops.rejection_summary</code> · <code>metadata.sources</code></span></div>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="arrow-h r-pipe c-a2"></div>
+
+    <div class="card gate r-pipe c-qc1" data-card>
+      <div class="title">🔍 QC ➀<br>Ingestion checks</div>
+      <div class="subtitle">row count · SHA256</div>
+      <div class="expanded-content">
+        <div class="group-label">ingestion_pre · during parsing</div>
+        <div class="step"><span class="num">·</span><div class="body">
+          <strong>row_count_match</strong> raw API records vs parsed DataFrame
+          <div class="meta">
+            <span class="meta-pill log">→ <code>ops.quality_runs</code></span>
+            <span class="meta-pill email">📧 if fail · CRITICAL halt</span>
+          </div>
+        </div></div>
+        <div class="group-label">ingestion_post · after B2 round-trip</div>
+        <div class="step"><span class="num">·</span><div class="body">
+          <strong>SHA256 checksum</strong> DataFrame before upload vs after re-download
+          <div class="meta">
+            <span class="meta-pill log">→ <code>ops.quality_runs</code></span>
+            <span class="meta-pill email">📧 if fail · CRITICAL halt</span>
+          </div>
+        </div></div>
+        <div class="step"><span class="num">·</span><div class="body">
+          <strong>row_count</strong> same comparison on count
+          <div class="meta">
+            <span class="meta-pill log">→ <code>ops.quality_runs</code></span>
+            <span class="meta-pill email">📧 if fail · CRITICAL halt</span>
+          </div>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="arrow-h r-pipe c-a3"></div>
+
+    <div class="card r-pipe c-tr" data-card>
+      <div class="title">⚙ Transformation <span class="toggle-icon">+</span></div>
+      <div class="subtitle">parse · map codes · upsert</div>
+      <div class="expanded-content">
+        <div class="step"><span class="num">①</span><div class="body">
+          <strong>Open run</strong> separate pipeline_runs row from ingestion
+          <div class="meta"><span class="meta-pill log">→ <code>ops.pipeline_runs</code></span></div>
+        </div></div>
+        <div class="step"><span class="num">②</span><div class="body">
+          <strong>First-run detection</strong> if no transformation_batch checkpoints → skip revision detection + read-back
+          <div class="meta"><span class="meta-pill log">read: <code>ops.checkpoints</code></span></div>
+        </div></div>
+        <div class="step"><span class="num">③</span><div class="body">
+          <strong>For each B2 file</strong> download
+        </div></div>
+        <div class="step"><span class="num">④</span><div class="body">
+          <strong>QC fires</strong> → see Quality Check ➁ for transformation_pre + pre_upsert + transformation_post
+        </div></div>
+        <div class="step"><span class="num">⑤</span><div class="body">
+          <strong>Parse</strong> map source codes → ISO3 via <code>country_codes</code>, type cast, year filter, drop nulls
+        </div></div>
+        <div class="step"><span class="num">⑥</span><div class="body">
+          <strong>Revision detection</strong> compare incoming values vs current silver · log every change
+          <div class="meta"><span class="meta-pill log">→ <code>standardized.observation_revisions</code></span></div>
+        </div></div>
+        <div class="step"><span class="num">⑦</span><div class="body">
+          <strong>Upsert</strong> multi-row VALUES INSERT · ON CONFLICT DO UPDATE
+          <div class="meta"><span class="meta-pill log">→ <code>standardized.observations</code></span></div>
+        </div></div>
+        <div class="step"><span class="num">⑧</span><div class="body">
+          <strong>write_complete</strong> mark batch checkpoint as complete
+          <div class="meta"><span class="meta-pill log">update: <code>ops.checkpoints</code></span></div>
+        </div></div>
+        <div class="step"><span class="num">⑨</span><div class="body">
+          <strong>Zero-rows alert</strong> if total_inserted = 0 across all batches
+          <div class="meta">
+            <span class="meta-pill log">→ <code>ops.pipeline_runs</code> status=failed</span>
+            <span class="meta-pill email">📧 CRITICAL email</span>
+          </div>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="arrow-h r-pipe c-a4"></div>
+
+    <div class="card gate r-pipe c-qc2" data-card>
+      <div class="title">🔍 QC ➁<br>Transform checks</div>
+      <div class="subtitle">checksum · FK · read-back</div>
+      <div class="expanded-content">
+        <div class="group-label">transformation_pre · before parse</div>
+        <div class="step"><span class="num">·</span><div class="body">
+          <strong>SHA256 vs stored hash</strong> proves B2 file unchanged since ingestion
+          <div class="meta">
+            <span class="meta-pill log">→ <code>ops.quality_runs</code></span>
+            <span class="meta-pill email">📧 if fail · CRITICAL halt · no retry</span>
+          </div>
+        </div></div>
+        <div class="group-label">pre_upsert · row-level</div>
+        <div class="step"><span class="num">·</span><div class="body">
+          <strong>FK validity</strong> country_iso3, metric_id, source_id known
+          <div class="meta">
+            <span class="meta-pill log">→ <code>ops.rejection_summary</code></span>
+            <span class="meta-pill ok">REJECTION · row dropped, no email</span>
+          </div>
+        </div></div>
+        <div class="step"><span class="num">·</span><div class="body">
+          <strong>empty_string</strong> Postgres won't catch '' as NULL · checked here
+          <div class="meta">
+            <span class="meta-pill log">→ <code>ops.rejection_summary</code></span>
+            <span class="meta-pill ok">REJECTION</span>
+          </div>
+        </div></div>
+        <div class="step"><span class="num">·</span><div class="body">
+          <strong>year_out_of_range</strong> 1950 ≤ year ≤ today+5
+          <div class="meta">
+            <span class="meta-pill log">→ <code>ops.rejection_summary</code></span>
+            <span class="meta-pill ok">REJECTION</span>
+          </div>
+        </div></div>
+        <div class="step"><span class="num">·</span><div class="body">
+          <strong>duplicate_pk</strong> within batch
+          <div class="meta">
+            <span class="meta-pill log">→ <code>ops.rejection_summary</code></span>
+            <span class="meta-pill ok">REJECTION</span>
+          </div>
+        </div></div>
+        <div class="group-label">transformation_post · after upsert</div>
+        <div class="step"><span class="num">·</span><div class="body">
+          <strong>read-back match</strong> upserted rows actually landed in Supabase
+          <div class="meta">
+            <span class="meta-pill log">→ <code>ops.quality_runs</code></span>
+            <span class="meta-pill email">📧 if fail · CRITICAL halt</span>
+          </div>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="arrow-h r-pipe c-a5"></div>
+
+    <div class="card r-pipe c-cov" data-card>
+      <div class="title">📊 Coverage <span class="toggle-icon">+</span></div>
+      <div class="subtitle">refresh stats · refresh curated views</div>
+      <div class="expanded-content">
+        <div class="group-label">Coverage stats (always)</div>
+        <div class="step"><span class="num">①</span><div class="body">
+          <strong>available_from / available_to</strong> earliest and latest year per metric
+          <div class="meta"><span class="meta-pill log">→ <code>metadata.metrics</code></span></div>
+        </div></div>
+        <div class="step"><span class="num">②</span><div class="body">
+          <strong>country_count</strong> distinct countries with at least one observation
+          <div class="meta"><span class="meta-pill log">→ <code>metadata.metrics</code></span></div>
+        </div></div>
+        <div class="step"><span class="num">③</span><div class="body">
+          <strong>observation_count</strong> total rows per metric
+          <div class="meta"><span class="meta-pill log">→ <code>metadata.metrics</code></span></div>
+        </div></div>
+        <div class="step"><span class="num">④</span><div class="body">
+          <strong>missing_value_rate</strong> % of (country × year) cells empty
+          <div class="meta"><span class="meta-pill log">→ <code>metadata.metrics</code></span></div>
+        </div></div>
+        <div class="group-label">Curated materialized views (when promoted)</div>
+        <div class="step"><span class="num">⑤</span><div class="body">
+          <strong>Refresh popular materialized views</strong> · views in the
+          <code>curated</code> schema that were promoted from query-log analysis are
+          rebuilt from current silver data so the gold layer stays fresh
+          <div class="meta"><span class="meta-pill log">→ <code>curated.*</code></span></div>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="arrow-h r-pipe c-a6"></div>
+
+    <div class="card app r-pipe c-app" data-card>
+      <div class="title">🖥 Streamlit App <span class="toggle-icon">+</span></div>
+      <div class="subtitle">Home · Query · Results</div>
+      <div class="expanded-content">
+        <div class="step"><span class="num">·</span><div class="body">
+          <strong>⌂ Home</strong> live hero stats (sources · obs · countries · year span) · 10-min cache
+          <div class="meta"><span class="meta-pill log">read: <code>standardized.observations</code></span></div>
+        </div></div>
+        <div class="step"><span class="num">·</span><div class="body">
+          <strong>🔍 Query</strong> source + metric (checkbox table) + region/income + country + year-range filters · search inputs
+          <div class="meta"><span class="meta-pill log">read: <code>metadata.*</code></span></div>
+        </div></div>
+        <div class="step"><span class="num">·</span><div class="body">
+          <strong>📊 Results</strong> wide-format preview · auto-typed charts (line continuous · bar binary) · CSV + metadata download · summary stats · drill-down · metric definitions
+          <div class="meta">
+            <span class="meta-pill log">read: <code>standardized.observations</code> or <code>curated.*</code></span>
+            <span class="meta-pill log">→ logs every query: <code>ops.query_log</code></span>
+          </div>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="arrow-v storage r-pipe-arr c-ing"></div>
+    <div class="arrow-v storage r-pipe-arr c-tr"></div>
+    <div class="arrow-v storage r-pipe-arr c-cov"></div>
+    <div class="arrow-v storage r-pipe-arr c-app"></div>
+
+    <div class="card bronze r-storage c-ing" data-card>
+      <div class="title">🥉 Raw / Bronze <span class="toggle-icon">+</span></div>
+      <div class="subtitle">Backblaze B2 · immutable</div>
+      <div class="expanded-content">
+        <div class="group-label">Bucket structure</div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>bronze/&lt;source&gt;/</strong> raw JSON per metric per ingestion date</div></div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>parked/&lt;source&gt;/</strong> rows with unknown metrics, awaiting approval</div></div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>logs/</strong> retired ops checkpoints (after 10-day Supabase retention)</div></div>
+      </div>
+    </div>
+
+    <div class="card silver r-storage c-tr" data-card>
+      <div class="title">🥈 Trusted / Silver <span class="toggle-icon">+</span></div>
+      <div class="subtitle">Supabase Postgres · queryable</div>
+      <div class="expanded-content">
+        <div class="group-label">standardized schema</div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>observations</strong> 3M+ rows · PK (country_iso3, year, period, metric_id)</div></div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>observation_revisions</strong> value-change history when sources retroactively update</div></div>
+        <div class="group-label">metadata schema (raw cross-walks)</div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>countries</strong> ~200 entries · ISO3 + name + region + income</div></div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>sources</strong> 7 providers + last_retrieved</div></div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>country_codes / metric_codes</strong> source ↔ canonical cross-walks</div></div>
+        <div class="group-label">ops schema</div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>pipeline_runs</strong> · <strong>checkpoints</strong> · <strong>quality_runs</strong> · <strong>rejection_summary</strong> · 10-day retention then migrated to B2 <code>logs/</code></div></div>
+      </div>
+    </div>
+
+    <div class="card gold r-storage c-cov" data-card>
+      <div class="title">🥇 Curated / Gold <span class="toggle-icon">+</span></div>
+      <div class="subtitle">usage-driven materialized views</div>
+      <div class="expanded-content">
+        <div class="group-label">What "gold" means here</div>
+        <div class="step"><span class="num">·</span><div class="body">
+          <strong>Materialized views derived from popular query patterns.</strong> Every researcher
+          query in the Streamlit app is logged. When the same filter combination shows up
+          frequently — same metric set, same country group, same year range — we promote it
+          to a pre-aggregated materialized view that answers in milliseconds instead of
+          re-scanning the 3M-row silver table.
+        </div></div>
+        <div class="group-label">How it works</div>
+        <div class="step"><span class="num">①</span><div class="body">
+          <strong>Log every query</strong> the Streamlit app fires · stored in
+          <code>ops.query_log</code> · captures filter signature, row count returned, response time
+        </div></div>
+        <div class="step"><span class="num">②</span><div class="body">
+          <strong>Periodic review</strong> of the log surfaces query patterns that hit a frequency
+          threshold (e.g. same filter signature run &gt; 20 times in a week)
+        </div></div>
+        <div class="step"><span class="num">③</span><div class="body">
+          <strong>Promote to materialized view</strong> · a new view is created in the
+          <code>curated</code> schema with the result pre-computed, refreshed by the
+          Coverage task on every successful transformation run
+        </div></div>
+        <div class="step"><span class="num">④</span><div class="body">
+          <strong>App routes transparently</strong> · the next time that query pattern arrives,
+          the app reads from the curated view instead of silver — sub-100ms response
+        </div></div>
+        <div class="group-label">Why usage-driven</div>
+        <div class="step"><span class="num">·</span><div class="body">
+          Materializing every possible aggregation would explode storage and refresh cost.
+          Letting actual researcher behaviour drive what gets materialized means we only pay
+          to pre-compute the slices that matter — and we automatically discover patterns we
+          wouldn't have predicted in advance.
+        </div></div>
+      </div>
+    </div>
+
+    <div class="card app r-storage c-app" data-card>
+      <div class="title">📺 Streamlit UI <span class="toggle-icon">+</span></div>
+      <div class="subtitle">where researchers consume</div>
+      <div class="expanded-content">
+        <div class="step"><span class="num">·</span><div class="body"><strong>Local browser</strong> · <code>localhost:8501</code> · runs from <code>app/Home.py</code></div></div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>Reads silver + metadata</strong> · automatically routes to <code>curated.*</code> when a matching materialized view exists</div></div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>Logs every query</strong> to <code>ops.query_log</code> · feeds the gold-layer promotion process</div></div>
+        <div class="step"><span class="num">·</span><div class="body"><strong>Downloads available</strong> wide CSV (data) + metadata CSV</div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="legend">
+    <span><span class="meta-pill log">→ logs</span> &nbsp;<strong>writes to ops / metadata table</strong></span>
+    <span><span class="meta-pill email">📧 email</span> &nbsp;<strong>triggers SMTP alert</strong></span>
+    <span><span class="meta-pill ok">ok</span> &nbsp;<strong>routine outcome, no alert</strong></span>
+  </div>
+
+  <footer>
+    Generated for MSBA 305 · AUB · 2026 ·
+    Audit and alerting are inline at every step where they actually fire
+  </footer>
+
+</div>
+
+<script>
+  document.querySelectorAll('[data-card]').forEach(card => {
+    card.addEventListener('click', e => {
+      if (e.target.closest('.expanded-content')) return;
+      card.classList.toggle('open');
+    });
+  });
+
+  function expandAll() {
+    document.querySelectorAll('[data-card]').forEach(c => c.classList.add('open'));
+  }
+  function collapseAll() {
+    document.querySelectorAll('[data-card]').forEach(c => c.classList.remove('open'));
+  }
+</script>
+</body>
+</html>
